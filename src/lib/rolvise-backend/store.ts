@@ -500,7 +500,7 @@ async function ensureDefaultCommunityRoles(organizationId: string, serverId: str
     return;
   }
 
-  await db.insert(communityRoles).values([
+  for (const role of [
     {
       organizationId,
       managedServerId: serverId,
@@ -537,7 +537,9 @@ async function ensureDefaultCommunityRoles(organizationId: string, serverId: str
       position: 3,
       systemKey: 'member'
     }
-  ]);
+  ]) {
+    await db.insert(communityRoles).values(role).onConflictDoNothing();
+  }
 }
 
 async function getRoleMemberCount(roleId: string) {
@@ -590,22 +592,37 @@ async function ensureCommunityMemberForUser(values: {
     )
     .limit(1);
 
-  const member =
-    existing ??
-    (
-      await db
-        .insert(communityMembers)
-        .values({
-          organizationId: values.organizationId,
-          managedServerId: values.serverId,
-          userId: values.userId,
-          discordId: context.discord.id,
-          discordUsername: context.discord.username,
-          discordAvatarUrl: context.discord.avatarUrl,
-          displayName: context.discord.globalName ?? context.discord.username
-        })
-        .returning()
-    )[0];
+  let member = existing ?? null;
+
+  if (!member) {
+    await db
+      .insert(communityMembers)
+      .values({
+        organizationId: values.organizationId,
+        managedServerId: values.serverId,
+        userId: values.userId,
+        discordId: context.discord.id,
+        discordUsername: context.discord.username,
+        discordAvatarUrl: context.discord.avatarUrl,
+        displayName: context.discord.globalName ?? context.discord.username
+      })
+      .onConflictDoNothing();
+
+    [member] = await db
+      .select()
+      .from(communityMembers)
+      .where(
+        and(
+          eq(communityMembers.managedServerId, values.serverId),
+          eq(communityMembers.discordId, context.discord.id)
+        )
+      )
+      .limit(1);
+  }
+
+  if (!member) {
+    throw new ApiError('internal_server_error', 'Member record could not be created.');
+  }
 
   const systemRole = await getSystemRole(
     values.organizationId,
@@ -915,22 +932,37 @@ export async function acceptDashboardInvite(userId: string, token: string) {
       )
       .limit(1);
 
-    const member =
-      existingMember ??
-      (
-        await tx
-          .insert(communityMembers)
-          .values({
-            organizationId: preview.organizationId,
-            managedServerId: preview.communityId,
-            userId,
-            discordId: contextUser.discordId,
-            discordUsername: discord.username,
-            discordAvatarUrl: discord.avatarUrl,
-            displayName: discord.globalName ?? discord.username
-          })
-          .returning()
-      )[0];
+    let member = existingMember ?? null;
+
+    if (!member) {
+      await tx
+        .insert(communityMembers)
+        .values({
+          organizationId: preview.organizationId,
+          managedServerId: preview.communityId,
+          userId,
+          discordId: contextUser.discordId,
+          discordUsername: discord.username,
+          discordAvatarUrl: discord.avatarUrl,
+          displayName: discord.globalName ?? discord.username
+        })
+        .onConflictDoNothing();
+
+      [member] = await tx
+        .select()
+        .from(communityMembers)
+        .where(
+          and(
+            eq(communityMembers.managedServerId, preview.communityId),
+            eq(communityMembers.discordId, contextUser.discordId)
+          )
+        )
+        .limit(1);
+    }
+
+    if (!member) {
+      throw new ApiError('internal_server_error', 'Member record could not be created.');
+    }
 
     if (preview.role?.id) {
       await tx

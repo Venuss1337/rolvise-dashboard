@@ -32,20 +32,22 @@ import { usePathname } from 'next/navigation';
 import * as React from 'react';
 import { Icons } from '../icons';
 import { ServerSwitcher } from '@/features/servers/components/server-switcher';
-import { MockSignOutButton } from '@/features/auth/components/mock-sign-out-button';
+import { SignOutButton } from '@/features/auth/components/sign-out-button';
 import { ModeratorMdtDialog } from '@/features/mdt/components/moderator-mdt-dialog';
+import { useCommunity } from '@/features/community/hooks/use-community';
 
 export default function AppSidebar() {
   const pathname = usePathname();
   const { isOpen } = useMediaQuery();
   const filteredGroups = useFilteredNavGroups(navGroups);
   const [mdtOpen, setMdtOpen] = React.useState(false);
-  const mockUser = {
-    firstName: 'ER:LC',
-    lastName: 'Manager',
-    fullName: 'ER:LC Manager',
-    imageUrl: '',
-    emailAddresses: [{ emailAddress: 'owner@erlc.community' }]
+  const { user, account } = useCommunity();
+  const displayName = user.name || 'Discord user';
+  const displayEmail = account?.user.email ?? account?.discord.username ?? '';
+  const appUser = {
+    fullName: displayName,
+    imageUrl: account?.discord.avatarUrl ?? account?.user.image ?? '',
+    emailAddresses: [{ emailAddress: displayEmail }]
   };
 
   React.useEffect(() => {
@@ -134,7 +136,7 @@ export default function AppSidebar() {
                     size='lg'
                     className='data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground'
                   >
-                    <UserAvatarProfile className='h-8 w-8 rounded-lg' showInfo user={mockUser} />
+                    <UserAvatarProfile className='h-8 w-8 rounded-lg' showInfo user={appUser} />
                     <Icons.chevronsDown className='ml-auto size-4' />
                   </SidebarMenuButton>
                 </DropdownMenuTrigger>
@@ -146,14 +148,13 @@ export default function AppSidebar() {
                 >
                   <DropdownMenuLabel className='p-0 font-normal'>
                     <div className='px-1 py-1.5'>
-                      <UserAvatarProfile className='h-8 w-8 rounded-lg' showInfo user={mockUser} />
+                      <UserAvatarProfile className='h-8 w-8 rounded-lg' showInfo user={appUser} />
                     </div>
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
 
                   <DropdownMenuItem>
-                    <Icons.logout className='mr-2 h-4 w-4' />
-                    <MockSignOutButton />
+                    <SignOutButton />
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>

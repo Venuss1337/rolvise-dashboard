@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Icons } from '@/components/icons';
 import { cn } from '@/lib/utils';
+import { accountQueryOptions } from '@/features/account/api/queries';
 import { serversQueryOptions } from '../api/queries';
 import type { ManagedServer, ManagedServerStatus } from '../api/types';
 import { useSelectedServer } from '../hooks/use-selected-server';
@@ -42,7 +43,7 @@ function ServerCard({
         <div className='bg-muted relative flex aspect-[16/9] min-h-28 items-center justify-center overflow-hidden rounded-md border'>
           <div className='absolute inset-0 bg-[linear-gradient(135deg,var(--muted),var(--secondary),var(--accent))]' />
           <div className='bg-background/85 text-foreground relative flex size-14 items-center justify-center rounded-md border text-base font-semibold tracking-wide shadow-sm'>
-            {server.imageSeed}
+            {server.imageSeed ?? server.name.slice(0, 3).toUpperCase()}
           </div>
         </div>
 
@@ -59,7 +60,7 @@ function ServerCard({
         </div>
 
         <div className='mt-3 flex flex-wrap gap-1.5'>
-          <Badge variant='secondary'>{server.role}</Badge>
+          <Badge variant='secondary'>{server.role ?? 'Member'}</Badge>
           <Badge variant='outline'>{server.activePlayers} online</Badge>
           <Badge variant='outline'>{server.openIncidents} cases</Badge>
         </div>
@@ -76,7 +77,7 @@ function ServerCard({
           <div>
             <div className='text-muted-foreground'>Session</div>
             <div className='font-medium tabular-nums'>
-              {new Date(server.lastSessionAt).toLocaleDateString()}
+              {server.lastSessionAt ? new Date(server.lastSessionAt).toLocaleDateString() : 'None'}
             </div>
           </div>
         </div>
@@ -101,8 +102,55 @@ function ServerCard({
 }
 
 export function ServerSelectionPage() {
-  const { data: servers } = useSuspenseQuery(serversQueryOptions());
-  const { selectedServerId, selectServer } = useSelectedServer(servers);
+  const { data: account } = useSuspenseQuery(accountQueryOptions());
+  const activeOrganization = account.organizations.find(
+    (organization) => organization.id === account.activeOrganizationId
+  );
+  const { data: servers } = useSuspenseQuery(
+    serversQueryOptions(account.activeOrganizationId, activeOrganization?.role)
+  );
+  const { selectedServerId, selectServer } = useSelectedServer(
+    servers,
+    account.activeOrganizationId
+  );
+
+  if (!account.activeOrganizationId) {
+    return (
+      <Card className='max-w-2xl rounded-lg'>
+        <CardContent className='space-y-3 p-6'>
+          <div className='flex size-10 items-center justify-center rounded-md border'>
+            <Icons.discord className='size-5' />
+          </div>
+          <div>
+            <h3 className='text-base font-semibold'>No Discord organization connected</h3>
+            <p className='text-muted-foreground mt-1 text-sm'>
+              Setup starts in Discord. Run /rolvise setup in the server you own, then open the claim
+              link from the bot.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (servers.length === 0) {
+    return (
+      <Card className='max-w-2xl rounded-lg'>
+        <CardContent className='space-y-3 p-6'>
+          <div className='flex size-10 items-center justify-center rounded-md border'>
+            <Icons.server className='size-5' />
+          </div>
+          <div>
+            <h3 className='text-base font-semibold'>No managed ER:LC servers yet</h3>
+            <p className='text-muted-foreground mt-1 text-sm'>
+              {activeOrganization?.name ?? 'This organization'} is connected, but no managed server
+              records exist yet.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className='grid max-w-5xl gap-3 sm:grid-cols-2 xl:grid-cols-3'>

@@ -9,13 +9,15 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { UserAvatarProfile } from '@/components/user-avatar-profile';
-import { MockSignOutButton } from '@/features/auth/components/mock-sign-out-button';
+import { useCommunity } from '@/features/community/hooks/use-community';
+import { SignOutButton } from '@/features/auth/components/sign-out-button';
 
 export function UserNav() {
+  const { user: communityUser, account } = useCommunity();
   const user = {
-    fullName: 'ER:LC Manager',
-    imageUrl: '',
-    emailAddresses: [{ emailAddress: 'owner@erlc.community' }]
+    fullName: communityUser.name || 'Discord user',
+    imageUrl: account?.discord.avatarUrl ?? account?.user.image ?? '',
+    emailAddresses: [{ emailAddress: account?.user.email ?? account?.discord.username ?? '' }]
   };
 
   return (
@@ -36,7 +38,7 @@ export function UserNav() {
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem>
-          <MockSignOutButton />
+          <SignOutButton />
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

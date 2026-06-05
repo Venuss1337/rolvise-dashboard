@@ -3,18 +3,27 @@ import { getManagedServerById, getManagedServers } from './service';
 
 export const serverKeys = {
   all: ['servers'] as const,
-  list: () => [...serverKeys.all, 'list'] as const,
-  detail: (id: string) => [...serverKeys.all, 'detail', id] as const
+  list: (organizationId: string | null | undefined) =>
+    [...serverKeys.all, 'list', organizationId] as const,
+  detail: (organizationId: string | null | undefined, id: string) =>
+    [...serverKeys.all, 'detail', organizationId, id] as const
 };
 
-export const serversQueryOptions = () =>
+export const serversQueryOptions = (
+  organizationId?: string | null,
+  role?: Parameters<typeof getManagedServers>[1]
+) =>
   queryOptions({
-    queryKey: serverKeys.list(),
-    queryFn: getManagedServers
+    queryKey: serverKeys.list(organizationId),
+    queryFn: () => getManagedServers(organizationId, role)
   });
 
-export const serverByIdOptions = (id: string) =>
+export const serverByIdOptions = (
+  organizationId: string | null | undefined,
+  id: string,
+  role?: Parameters<typeof getManagedServers>[1]
+) =>
   queryOptions({
-    queryKey: serverKeys.detail(id),
-    queryFn: () => getManagedServerById(id)
+    queryKey: serverKeys.detail(organizationId, id),
+    queryFn: () => getManagedServerById(organizationId, id, role)
   });

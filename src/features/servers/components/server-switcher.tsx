@@ -20,20 +20,46 @@ import { useCommunity } from '@/features/community/hooks/use-community';
 
 export function ServerSwitcher() {
   const { isMobile, state } = useSidebar();
-  const { communities, community, communityId, switchCommunity } = useCommunity();
+  const {
+    communities,
+    community,
+    communityId,
+    switchCommunity,
+    organization,
+    organizationId,
+    isLoaded
+  } = useCommunity();
 
-  if (!community) {
+  if (!isLoaded || !community) {
     return (
       <SidebarMenu>
         <SidebarMenuItem>
-          <SidebarMenuButton size='lg' disabled>
-            <div className='bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg'>
-              <Icons.server className='size-4' />
-            </div>
-            <div className='grid flex-1 text-left text-sm leading-tight'>
-              <span className='truncate font-medium'>No servers</span>
-              <span className='text-muted-foreground truncate text-xs'>Add one to begin</span>
-            </div>
+          <SidebarMenuButton size='lg' asChild={isLoaded && !!organizationId}>
+            {isLoaded && organizationId ? (
+              <Link href='/dashboard/servers'>
+                <div className='bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg'>
+                  <Icons.server className='size-4' />
+                </div>
+                <div className='grid flex-1 text-left text-sm leading-tight'>
+                  <span className='truncate font-medium'>{organization?.name ?? 'No servers'}</span>
+                  <span className='text-muted-foreground truncate text-xs'>Create a server</span>
+                </div>
+              </Link>
+            ) : (
+              <>
+                <div className='bg-sidebar-primary text-sidebar-primary-foreground flex aspect-square size-8 shrink-0 items-center justify-center rounded-lg'>
+                  <Icons.server className='size-4' />
+                </div>
+                <div className='grid flex-1 text-left text-sm leading-tight'>
+                  <span className='truncate font-medium'>
+                    {isLoaded ? 'No organization' : 'Loading'}
+                  </span>
+                  <span className='text-muted-foreground truncate text-xs'>
+                    {isLoaded ? 'Run /rolvise setup' : 'Fetching context'}
+                  </span>
+                </div>
+              </>
+            )}
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
@@ -62,7 +88,8 @@ export function ServerSwitcher() {
               >
                 <span className='truncate font-medium'>{community.name}</span>
                 <span className='text-muted-foreground truncate text-xs'>
-                  {community.role} · {community.activePlayers} online
+                  {organization?.role ?? community.role ?? 'Member'} · {community.activePlayers}{' '}
+                  online
                 </span>
               </div>
               <Icons.chevronsUpDown
@@ -94,7 +121,8 @@ export function ServerSwitcher() {
                   <div className='min-w-0 flex-1'>
                     <div className='truncate font-medium'>{server.name}</div>
                     <div className='text-muted-foreground text-xs'>
-                      {server.role} · {server.openIncidents} open cases
+                      {organization?.role ?? server.role ?? 'Member'} · {server.openIncidents} open
+                      cases
                     </div>
                   </div>
                   {isActive && <Icons.check className='mt-1 size-4' />}

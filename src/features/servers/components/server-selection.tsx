@@ -2,7 +2,6 @@ import { HydrationBoundary, dehydrate } from '@tanstack/react-query';
 import { Suspense } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getQueryClient } from '@/lib/query-client';
-import { serversQueryOptions } from '../api/queries';
 import { ServerSelectionPage } from './server-selection-page';
 
 function ServerSelectionSkeleton() {
@@ -20,8 +19,6 @@ function ServerSelectionSkeleton() {
 
 export default function ServerSelection() {
   const queryClient = getQueryClient();
-
-  void queryClient.prefetchQuery(serversQueryOptions());
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>

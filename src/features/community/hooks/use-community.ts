@@ -1,6 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
+import { accountQueryOptions } from '@/features/account/api/queries';
 import { serversQueryOptions } from '@/features/servers/api/queries';
 import type { ManagedServer, ManagedServerRole } from '@/features/servers/api/types';
 import { useSelectedServer } from '@/features/servers/hooks/use-selected-server';
@@ -35,18 +36,31 @@ export type CommunityUser = {
 };
 
 export function useCommunity() {
-  const { data: communities = [], isLoading } = useQuery(serversQueryOptions());
-  const { selectedServer, selectedServerId, selectServer } = useSelectedServer(communities);
-  const role = selectedServer?.role ?? null;
-  const permissions = role ? rolePermissions[role] : [];
+  const { data: account, isLoading: isAccountLoading } = useQuery(accountQueryOptions());
+  const activeOrganization = account?.organizations.find(
+    (organization) => organization.id === account.activeOrganizationId
+  );
+  const role = activeOrganization?.role ?? null;
+  const permissions = activeOrganization?.permissions ?? (role ? rolePermissions[role] : []);
+  const { data: communities = [], isLoading: isServersLoading } = useQuery(
+    serversQueryOptions(account?.activeOrganizationId, role ?? undefined)
+  );
+  const { selectedServer, selectedServerId, selectServer } = useSelectedServer(
+    communities,
+    account?.activeOrganizationId
+  );
 
   return {
-    isLoaded: !isLoading,
+    isLoaded: !isAccountLoading && !isServersLoading,
     user: {
-      id: 'mock-user',
-      name: 'ER:LC Manager',
-      email: 'owner@erlc.community'
+      id: account?.user.id ?? '',
+      name: account?.discord.globalName ?? account?.discord.username ?? account?.user.name ?? '',
+      email: account?.user.email ?? account?.discord.username ?? ''
     } satisfies CommunityUser,
+    account,
+    organizations: account?.organizations ?? [],
+    organization: activeOrganization ?? null,
+    organizationId: account?.activeOrganizationId ?? null,
     communities,
     community: selectedServer,
     communityId: selectedServerId,

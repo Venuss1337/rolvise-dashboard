@@ -1,9 +1,8 @@
-import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { Metadata } from 'next';
 import Link from 'next/link';
+import { DiscordAuthButton } from './discord-auth-button';
 import { InteractiveGridPattern } from './interactive-grid';
-import { MockAuthForm } from './mock-auth-form';
 
 export const metadata: Metadata = {
   title: 'Authentication',
@@ -14,13 +13,10 @@ export default function SignInViewPage() {
   return (
     <div className='relative flex min-h-screen flex-col items-center justify-center overflow-hidden md:grid lg:max-w-none lg:grid-cols-2 lg:px-0'>
       <Link
-        href='/auth/sign-up'
-        className={cn(
-          buttonVariants({ variant: 'ghost' }),
-          'absolute top-4 right-4 md:top-8 md:right-8'
-        )}
+        href='/'
+        className='text-muted-foreground hover:text-foreground absolute top-4 right-4 text-sm underline-offset-4 hover:underline md:top-8 md:right-8'
       >
-        Create account
+        Back home
       </Link>
       <div className='relative hidden h-full flex-col p-10 lg:flex dark:border-r'>
         <div className='absolute inset-0 bg-sidebar' />
@@ -51,24 +47,19 @@ export default function SignInViewPage() {
               &ldquo;Choose the ER:LC community you manage, then jump into staff, reports, and
               server operations without wrestling with setup.&rdquo;
             </p>
-            <footer className='text-sidebar-foreground/70 text-sm'>Mock auth preview</footer>
+            <footer className='text-sidebar-foreground/70 text-sm'>Discord-only access</footer>
           </blockquote>
         </div>
       </div>
       <div className='flex h-full items-center justify-center p-4 lg:p-8'>
         <div className='flex w-full max-w-md flex-col items-center justify-center space-y-6'>
           <div className='w-full space-y-2 text-center'>
-            <h1 className='text-2xl font-semibold tracking-tight'>Login to Rolvise</h1>
+            <h1 className='text-2xl font-semibold tracking-tight'>Sign in to Rolvise</h1>
             <p className='text-muted-foreground text-sm'>
-              Development mock OAuth 2.1-style login. Any email and password works.
+              Use Discord to access the ER:LC communities you manage.
             </p>
           </div>
-          <MockAuthForm mode='sign-in' />
-          <div className='text-muted-foreground space-y-2 px-8 text-center text-xs'>
-            <p>
-              This is not production authentication. It only creates a local development session.
-            </p>
-          </div>
+          <DiscordAuthButton />
 
           <p className='text-muted-foreground px-8 text-center text-sm'>
             By clicking continue, you agree to our{' '}

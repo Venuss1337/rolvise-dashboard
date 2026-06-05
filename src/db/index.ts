@@ -9,11 +9,11 @@ const globalForDb = globalThis as typeof globalThis & {
 function getDatabaseUrl() {
   const databaseUrl = process.env.DATABASE_URL;
 
-  if (!databaseUrl) {
+  if (!databaseUrl && process.env.NEXT_PHASE !== 'phase-production-build') {
     throw new Error('DATABASE_URL is required for the Rolvise backend.');
   }
 
-  return databaseUrl;
+  return databaseUrl ?? 'postgres://rolvise:rolvise@127.0.0.1:5432/rolvise_build';
 }
 
 export const sql =

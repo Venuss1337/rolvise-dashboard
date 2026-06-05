@@ -1,22 +1,43 @@
 import { db } from '@/db';
 import { schema } from '@/db/schema';
-import { betterAuth } from 'better-auth';
+import { betterAuth } from 'better-auth/minimal';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { nextCookies } from 'better-auth/next-js';
 
 function envOrDevelopment(name: string, developmentValue: string) {
   const value = process.env[name];
 
-  if (!value && process.env.NODE_ENV === 'production') {
+  if (
+    !value &&
+    process.env.NODE_ENV === 'production' &&
+    process.env.NEXT_PHASE !== 'phase-production-build'
+  ) {
     throw new Error(`${name} is required.`);
   }
 
   return value ?? developmentValue;
 }
 
+function baseUrl() {
+  const value = process.env.BETTER_AUTH_URL;
+
+  if (value) {
+    return value;
+  }
+
+  if (
+    process.env.NODE_ENV === 'production' &&
+    process.env.NEXT_PHASE !== 'phase-production-build'
+  ) {
+    throw new Error('BETTER_AUTH_URL is required.');
+  }
+
+  return 'http://localhost:3000';
+}
+
 export const auth = betterAuth({
   appName: 'Rolvise',
-  baseURL: process.env.BETTER_AUTH_URL,
+  baseURL: baseUrl(),
   secret: envOrDevelopment('BETTER_AUTH_SECRET', 'development-better-auth-secret-change-me'),
   database: drizzleAdapter(db, {
     provider: 'pg',

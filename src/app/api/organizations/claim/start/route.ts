@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     requireBotSignature(request, rawBody);
 
     const values = startOrganizationClaimSchema.parse(parseJson(rawBody));
-    return json(startOrganizationClaim(values, request.url), { status: 201 });
+    return json(await startOrganizationClaim(values, request.url), { status: 201 });
   } catch (error) {
     return errorResponse(error);
   }

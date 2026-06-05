@@ -1,7 +1,18 @@
-import { randomBytes, randomUUID } from 'crypto';
+import { db } from '@/db';
+import {
+  account,
+  auditLogs,
+  botEvents,
+  discordGuildLinks,
+  managedServers,
+  organizationClaims,
+  organizationMembers,
+  organizations,
+  user
+} from '@/db/schema';
+import { and, asc, count, eq, gt, inArray, lte } from 'drizzle-orm';
+import { randomBytes } from 'crypto';
 import type {
-  AuditLog,
-  BotEventRequest,
   DiscordGuildLink,
   DiscordProfile,
   ManagedServer,
@@ -9,7 +20,6 @@ import type {
   ManagedServerStatus,
   MeResponse,
   OrganizationClaim,
-  OrganizationClaimRecord,
   OrganizationClaimStatus,
   OrganizationDetail,
   OrganizationMembership,
@@ -17,7 +27,6 @@ import type {
   OrganizationRecord,
   OrganizationRole,
   OrganizationSummary,
-  Session,
   User
 } from './types';
 import type {
@@ -50,129 +59,22 @@ const ROLE_PERMISSIONS: Record<OrganizationRole, OrganizationPermission[]> = {
   Moderator: ['community:view', 'staff:view', 'cases:view', 'cases:manage']
 };
 
-const SESSION_DAYS = 30;
 const CLAIM_MINUTES = 15;
-const OAUTH_STATE_MINUTES = 10;
 
-interface OAuthState {
-  state: string;
-  redirectTo: string;
-  expiresAt: string;
-  createdAt: string;
-}
-
-interface BackendStoreState {
-  users: User[];
-  discordProfiles: DiscordProfile[];
-  sessions: Session[];
-  oauthStates: OAuthState[];
-  organizations: OrganizationRecord[];
-  memberships: OrganizationMembership[];
-  managedServers: ManagedServer[];
-  claims: OrganizationClaimRecord[];
-  botEvents: BotEventRequest[];
-  auditLogs: AuditLog[];
-}
-
-const seedOrganizationId = '4ce8cdf9-eeba-4a37-95a1-9b7e4b50ce25';
-const seedUserId = 'e7380e53-22eb-4f50-a507-4258d502737c';
-const nowSeed = '2026-06-05T12:00:00.000Z';
-
-const initialState: BackendStoreState = {
-  users: [
-    {
-      id: seedUserId,
-      discordId: '123456789012345678',
-      name: 'ER:LC Manager',
-      email: 'manager@example.com',
-      image: null,
-      createdAt: nowSeed,
-      updatedAt: nowSeed
-    }
-  ],
-  discordProfiles: [
-    {
-      id: '123456789012345678',
-      username: 'erlc_manager',
-      globalName: 'ER:LC Manager',
-      discriminator: null,
-      avatarUrl: null
-    }
-  ],
-  sessions: [],
-  oauthStates: [],
-  organizations: [
-    {
-      id: seedOrganizationId,
-      name: 'River City Roleplay',
-      slug: 'river-city-roleplay',
-      discordGuild: {
-        discordGuildId: '987654321098765432',
-        name: 'River City Roleplay',
-        iconUrl: null,
-        ownerDiscordId: '123456789012345678',
-        status: 'linked',
-        memberCount: 4821,
-        linkedAt: nowSeed,
-        lastSyncedAt: nowSeed
-      },
-      createdAt: nowSeed,
-      updatedAt: nowSeed
-    }
-  ],
-  memberships: [
-    {
-      id: 'c0a9221a-0e6b-49e8-a196-9ea67f4ea9d7',
-      userId: seedUserId,
-      organizationId: seedOrganizationId,
-      role: 'Owner',
-      permissions: OWNER_PERMISSIONS,
-      joinedAt: nowSeed
-    }
-  ],
-  managedServers: [
-    {
-      id: 'c1ae9617-208a-4f72-a4f3-25ef8c9872ed',
-      organizationId: seedOrganizationId,
-      name: 'River City Roleplay',
-      imageSeed: 'RCR',
-      status: 'online',
-      robloxGroupId: '14582011',
-      joinCode: 'RCRP',
-      memberCount: 4821,
-      staffCount: 42,
-      activePlayers: 31,
-      openIncidents: 7,
-      lastSessionAt: '2026-05-31T17:45:00.000Z',
-      createdAt: nowSeed,
-      updatedAt: nowSeed
-    }
-  ],
-  claims: [],
-  botEvents: [],
-  auditLogs: []
-};
-
-const globalStore = globalThis as typeof globalThis & {
-  rolviseBackendStore?: BackendStoreState;
-};
-
-function getState() {
-  globalStore.rolviseBackendStore ??= structuredClone(initialState);
-  expireClaims(globalStore.rolviseBackendStore);
-  return globalStore.rolviseBackendStore;
-}
-
-function now() {
-  return new Date().toISOString();
-}
+type AuthUser = typeof user.$inferSelect;
+type Account = typeof account.$inferSelect;
+type Organization = typeof organizations.$inferSelect;
+type OrganizationMember = typeof organizationMembers.$inferSelect;
+type DiscordGuildLinkRow = typeof discordGuildLinks.$inferSelect;
+type ManagedServerRow = typeof managedServers.$inferSelect;
+type OrganizationClaimRow = typeof organizationClaims.$inferSelect;
 
 function addMinutes(minutes: number) {
-  return new Date(Date.now() + minutes * 60 * 1000).toISOString();
+  return new Date(Date.now() + minutes * 60 * 1000);
 }
 
-function addDays(days: number) {
-  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+function toIsoDateTime(value: Date | string) {
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
 function slugify(value: string) {
@@ -184,16 +86,83 @@ function slugify(value: string) {
   return slug || null;
 }
 
-function expireClaims(state: BackendStoreState) {
-  const currentTime = Date.now();
+function toOpenApiUser(row: AuthUser, discordId: string): User {
+  return {
+    id: row.id,
+    discordId,
+    name: row.name,
+    email: row.email,
+    image: row.image,
+    createdAt: toIsoDateTime(row.createdAt),
+    updatedAt: toIsoDateTime(row.updatedAt)
+  };
+}
 
-  state.claims = state.claims.map((claim) => {
-    if (claim.status === 'pending' && Date.parse(claim.expiresAt) <= currentTime) {
-      return { ...claim, status: 'expired' };
-    }
+function toDiscordProfile(row: AuthUser, discordAccount: Account): DiscordProfile {
+  return {
+    id: discordAccount.accountId,
+    username: row.name,
+    globalName: row.name,
+    discriminator: null,
+    avatarUrl: row.image
+  };
+}
 
-    return claim;
-  });
+function toDiscordGuildLink(row: DiscordGuildLinkRow): DiscordGuildLink {
+  return {
+    discordGuildId: row.discordGuildId,
+    name: row.name,
+    iconUrl: row.iconUrl,
+    ownerDiscordId: row.ownerDiscordId,
+    status: row.status,
+    memberCount: row.memberCount,
+    linkedAt: toIsoDateTime(row.linkedAt),
+    lastSyncedAt: row.lastSyncedAt ? toIsoDateTime(row.lastSyncedAt) : null
+  };
+}
+
+function toMembership(row: OrganizationMember): OrganizationMembership {
+  return {
+    id: row.id,
+    userId: row.userId,
+    organizationId: row.organizationId,
+    role: row.role,
+    permissions: row.permissions as OrganizationPermission[],
+    joinedAt: toIsoDateTime(row.joinedAt)
+  };
+}
+
+function toManagedServer(row: ManagedServerRow): ManagedServer {
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    name: row.name,
+    imageSeed: row.imageSeed,
+    status: row.status,
+    robloxGroupId: row.robloxGroupId,
+    joinCode: row.joinCode,
+    memberCount: row.memberCount,
+    staffCount: row.staffCount,
+    activePlayers: row.activePlayers,
+    openIncidents: row.openIncidents,
+    lastSessionAt: row.lastSessionAt ? toIsoDateTime(row.lastSessionAt) : null,
+    createdAt: toIsoDateTime(row.createdAt),
+    updatedAt: toIsoDateTime(row.updatedAt)
+  };
+}
+
+function toOrganizationRecord(
+  organization: Organization,
+  discordGuild: DiscordGuildLinkRow
+): OrganizationRecord {
+  return {
+    id: organization.id,
+    name: organization.name,
+    slug: organization.slug,
+    discordGuild: toDiscordGuildLink(discordGuild),
+    createdAt: toIsoDateTime(organization.createdAt),
+    updatedAt: toIsoDateTime(organization.updatedAt)
+  };
 }
 
 function toOrganizationSummary(
@@ -213,7 +182,7 @@ function toOrganizationSummary(
   };
 }
 
-function toClaimResponse(claim: OrganizationClaimRecord): OrganizationClaim {
+function toClaimResponse(claim: OrganizationClaimRow): OrganizationClaim {
   return {
     claimToken: claim.claimToken,
     claimUrl: claim.claimUrl,
@@ -221,219 +190,174 @@ function toClaimResponse(claim: OrganizationClaimRecord): OrganizationClaim {
     discordGuildName: claim.discordGuildName,
     guildOwnerDiscordId: claim.guildOwnerDiscordId,
     status: claim.status,
-    expiresAt: claim.expiresAt,
-    createdAt: claim.createdAt
+    expiresAt: toIsoDateTime(claim.expiresAt),
+    createdAt: toIsoDateTime(claim.createdAt)
   };
 }
 
-function addAuditLog(state: BackendStoreState, values: Omit<AuditLog, 'id' | 'createdAt'>) {
-  state.auditLogs.push({
-    id: randomUUID(),
-    createdAt: now(),
-    ...values
-  });
+async function expireClaims() {
+  await db
+    .update(organizationClaims)
+    .set({ status: 'expired' })
+    .where(
+      and(eq(organizationClaims.status, 'pending'), lte(organizationClaims.expiresAt, new Date()))
+    );
 }
 
-export function upsertDiscordUser(profile: DiscordProfile, email: string | null): User {
-  const state = getState();
-  const existing = state.users.find((user) => user.discordId === profile.id);
-  const timestamp = now();
-
-  const normalizedProfile = {
-    ...profile,
-    globalName: profile.globalName ?? null,
-    discriminator: profile.discriminator ?? null,
-    avatarUrl: profile.avatarUrl ?? null
-  };
-
-  const profileIndex = state.discordProfiles.findIndex((item) => item.id === profile.id);
-  if (profileIndex >= 0) {
-    state.discordProfiles[profileIndex] = normalizedProfile;
-  } else {
-    state.discordProfiles.push(normalizedProfile);
-  }
-
-  if (existing) {
-    existing.name = profile.globalName ?? profile.username;
-    existing.email = email;
-    existing.image = profile.avatarUrl;
-    existing.updatedAt = timestamp;
-    return existing;
-  }
-
-  const user: User = {
-    id: randomUUID(),
-    discordId: profile.id,
-    name: profile.globalName ?? profile.username,
-    email,
-    image: profile.avatarUrl,
-    createdAt: timestamp,
-    updatedAt: timestamp
-  };
-
-  state.users.push(user);
-  return user;
+async function addAuditLog(values: {
+  type: string;
+  organizationId: string | null;
+  discordGuildId: string | null;
+  actorUserId: string | null;
+  actorDiscordId: string | null;
+  metadata: Record<string, unknown>;
+}) {
+  await db.insert(auditLogs).values(values);
 }
 
-export function createSession(userId: string): Session {
-  const state = getState();
-  const session: Session = {
-    token: randomBytes(32).toString('base64url'),
-    userId,
-    expiresAt: addDays(SESSION_DAYS),
-    createdAt: now()
-  };
+async function getDiscordAccount(userId: string) {
+  const [discordAccount] = await db
+    .select()
+    .from(account)
+    .where(and(eq(account.userId, userId), eq(account.providerId, 'discord')))
+    .limit(1);
 
-  state.sessions.push(session);
-  return session;
+  return discordAccount ?? null;
 }
 
-export function deleteSession(token: string) {
-  const state = getState();
-  state.sessions = state.sessions.filter((session) => session.token !== token);
-}
+async function getUserContext(userId: string) {
+  const [authUser] = await db.select().from(user).where(eq(user.id, userId)).limit(1);
 
-export function getSessionContext(token: string | undefined) {
-  if (!token) {
-    return null;
-  }
-
-  const state = getState();
-  const session = state.sessions.find((item) => item.token === token);
-
-  if (!session || Date.parse(session.expiresAt) <= Date.now()) {
-    state.sessions = state.sessions.filter((item) => item.token !== token);
-    return null;
-  }
-
-  const user = state.users.find((item) => item.id === session.userId);
-  if (!user) {
-    return null;
-  }
-
-  const discord = state.discordProfiles.find((item) => item.id === user.discordId);
-  if (!discord) {
-    return null;
-  }
-
-  return { session, user, discord };
-}
-
-export function createOAuthState(redirectTo: string) {
-  const state = getState();
-  const oauthState: OAuthState = {
-    state: randomBytes(24).toString('base64url'),
-    redirectTo,
-    expiresAt: addMinutes(OAUTH_STATE_MINUTES),
-    createdAt: now()
-  };
-
-  state.oauthStates.push(oauthState);
-  return oauthState;
-}
-
-export function consumeOAuthState(stateValue: string) {
-  const state = getState();
-  const oauthState = state.oauthStates.find((item) => item.state === stateValue);
-
-  if (!oauthState) {
-    throw new ApiError('bad_request', 'OAuth state is invalid.');
-  }
-
-  state.oauthStates = state.oauthStates.filter((item) => item.state !== stateValue);
-
-  if (Date.parse(oauthState.expiresAt) <= Date.now()) {
-    throw new ApiError('bad_request', 'OAuth state has expired.');
-  }
-
-  return oauthState;
-}
-
-export function getMe(userId: string): MeResponse {
-  const state = getState();
-  const user = state.users.find((item) => item.id === userId);
-
-  if (!user) {
+  if (!authUser) {
     throw new ApiError('unauthorized', 'Sign in with Discord to continue.');
   }
 
-  const discord = state.discordProfiles.find((item) => item.id === user.discordId);
-  if (!discord) {
+  const discordAccount = await getDiscordAccount(userId);
+
+  if (!discordAccount) {
     throw new ApiError('unauthorized', 'Sign in with Discord to continue.');
   }
-
-  const organizations = listOrganizationSummariesForUser(userId);
-  const activeOrganizationId = organizations[0]?.id ?? null;
-  const activeManagedServerId =
-    activeOrganizationId === null
-      ? null
-      : (state.managedServers.find((server) => server.organizationId === activeOrganizationId)
-          ?.id ?? null);
 
   return {
-    user,
-    discord,
-    organizations,
+    user: toOpenApiUser(authUser, discordAccount.accountId),
+    discord: toDiscordProfile(authUser, discordAccount)
+  };
+}
+
+async function getServerCountByOrganization(organizationId: string) {
+  const [result] = await db
+    .select({ value: count() })
+    .from(managedServers)
+    .where(eq(managedServers.organizationId, organizationId));
+
+  return result?.value ?? 0;
+}
+
+export async function getMe(userId: string): Promise<MeResponse> {
+  await expireClaims();
+
+  const context = await getUserContext(userId);
+  const userOrganizations = await listOrganizationSummariesForUser(userId);
+  const activeOrganizationId = userOrganizations[0]?.id ?? null;
+  const [activeServer] =
+    activeOrganizationId === null
+      ? []
+      : await db
+          .select()
+          .from(managedServers)
+          .where(eq(managedServers.organizationId, activeOrganizationId))
+          .orderBy(asc(managedServers.createdAt))
+          .limit(1);
+
+  return {
+    user: context.user,
+    discord: context.discord,
+    organizations: userOrganizations,
     activeOrganizationId,
-    activeManagedServerId,
+    activeManagedServerId: activeServer?.id ?? null,
     onboarding: {
-      requiresOrganization: organizations.length === 0,
-      nextUrl: organizations.length === 0 ? '/dashboard/onboarding/discord' : '/dashboard/servers'
+      requiresOrganization: userOrganizations.length === 0,
+      nextUrl:
+        userOrganizations.length === 0 ? '/dashboard/onboarding/discord' : '/dashboard/servers'
     }
   };
 }
 
-export function listOrganizationSummariesForUser(userId: string): OrganizationSummary[] {
-  const state = getState();
+export async function listOrganizationSummariesForUser(
+  userId: string
+): Promise<OrganizationSummary[]> {
+  await expireClaims();
 
-  return state.memberships
-    .filter((membership) => membership.userId === userId)
-    .map((membership) => {
-      const organization = state.organizations.find(
-        (item) => item.id === membership.organizationId
-      );
+  const rows = await db
+    .select({
+      organization: organizations,
+      membership: organizationMembers,
+      discordGuild: discordGuildLinks
+    })
+    .from(organizationMembers)
+    .innerJoin(organizations, eq(organizations.id, organizationMembers.organizationId))
+    .innerJoin(discordGuildLinks, eq(discordGuildLinks.organizationId, organizations.id))
+    .where(eq(organizationMembers.userId, userId))
+    .orderBy(asc(organizations.createdAt));
 
-      if (!organization) {
-        return null;
-      }
-
-      const managedServerCount = state.managedServers.filter(
-        (server) => server.organizationId === organization.id
-      ).length;
+  return Promise.all(
+    rows.map(async (row) => {
+      const organization = toOrganizationRecord(row.organization, row.discordGuild);
+      const membership = toMembership(row.membership);
+      const managedServerCount = await getServerCountByOrganization(organization.id);
 
       return toOrganizationSummary(organization, membership, managedServerCount);
     })
-    .filter((organization): organization is OrganizationSummary => Boolean(organization));
+  );
 }
 
-export function getOrganizationDetail(userId: string, organizationId: string): OrganizationDetail {
-  const state = getState();
-  const organization = state.organizations.find((item) => item.id === organizationId);
+export async function getOrganizationDetail(
+  userId: string,
+  organizationId: string
+): Promise<OrganizationDetail> {
+  await expireClaims();
 
-  if (!organization) {
-    throw new ApiError('not_found', 'Resource not found.');
-  }
+  const [row] = await db
+    .select({
+      organization: organizations,
+      membership: organizationMembers,
+      discordGuild: discordGuildLinks
+    })
+    .from(organizations)
+    .innerJoin(organizationMembers, eq(organizationMembers.organizationId, organizations.id))
+    .innerJoin(discordGuildLinks, eq(discordGuildLinks.organizationId, organizations.id))
+    .where(and(eq(organizations.id, organizationId), eq(organizationMembers.userId, userId)))
+    .limit(1);
 
-  const membership = state.memberships.find(
-    (item) => item.organizationId === organizationId && item.userId === userId
-  );
+  if (!row) {
+    const [organization] = await db
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(eq(organizations.id, organizationId))
+      .limit(1);
 
-  if (!membership) {
+    if (!organization) {
+      throw new ApiError('not_found', 'Resource not found.');
+    }
+
     throw new ApiError('forbidden', 'You do not have permission to access this resource.');
   }
+
+  const organization = toOrganizationRecord(row.organization, row.discordGuild);
+  const membership = toMembership(row.membership);
 
   return {
     ...toOrganizationSummary(
       organization,
       membership,
-      state.managedServers.filter((server) => server.organizationId === organization.id).length
+      await getServerCountByOrganization(organization.id)
     ),
     membership,
     updatedAt: organization.updatedAt
   };
 }
 
-export function listManagedServers(
+export async function listManagedServers(
   userId: string,
   organizationId: string,
   filters: {
@@ -441,21 +365,27 @@ export function listManagedServers(
     limit: number;
     cursor?: string;
   }
-): ManagedServerListResponse {
-  getOrganizationDetail(userId, organizationId);
+): Promise<ManagedServerListResponse> {
+  await getOrganizationDetail(userId, organizationId);
 
-  const state = getState();
-  let servers = state.managedServers.filter((server) => server.organizationId === organizationId);
+  const predicates = [eq(managedServers.organizationId, organizationId)];
 
   if (filters.status) {
-    servers = servers.filter((server) => server.status === filters.status);
+    predicates.push(eq(managedServers.status, filters.status));
   }
 
-  const startIndex = filters.cursor
-    ? Math.max(servers.findIndex((server) => server.id === filters.cursor) + 1, 0)
-    : 0;
-  const items = servers.slice(startIndex, startIndex + filters.limit);
-  const next = servers[startIndex + filters.limit];
+  if (filters.cursor) {
+    predicates.push(gt(managedServers.id, filters.cursor));
+  }
+
+  const rows = await db
+    .select()
+    .from(managedServers)
+    .where(and(...predicates))
+    .orderBy(asc(managedServers.id))
+    .limit(filters.limit + 1);
+  const items = rows.slice(0, filters.limit).map(toManagedServer);
+  const next = rows[filters.limit];
 
   return {
     items,
@@ -466,11 +396,11 @@ export function listManagedServers(
   };
 }
 
-export function startOrganizationClaim(
+export async function startOrganizationClaim(
   input: StartOrganizationClaimInput,
   requestUrl: string
-): OrganizationClaim {
-  const state = getState();
+): Promise<OrganizationClaim> {
+  await expireClaims();
 
   if (input.guildOwnerDiscordId !== input.commandUserDiscordId) {
     throw new ApiError(
@@ -479,9 +409,11 @@ export function startOrganizationClaim(
     );
   }
 
-  const existingLink = state.organizations.find(
-    (organization) => organization.discordGuild.discordGuildId === input.discordGuildId
-  );
+  const [existingLink] = await db
+    .select()
+    .from(discordGuildLinks)
+    .where(eq(discordGuildLinks.discordGuildId, input.discordGuildId))
+    .limit(1);
 
   if (existingLink) {
     throw new ApiError(
@@ -490,36 +422,39 @@ export function startOrganizationClaim(
     );
   }
 
-  state.claims = state.claims.filter(
-    (claim) =>
-      !(
-        claim.discordGuildId === input.discordGuildId &&
-        ['pending', 'expired'].includes(claim.status)
+  await db
+    .update(organizationClaims)
+    .set({ status: 'revoked' })
+    .where(
+      and(
+        eq(organizationClaims.discordGuildId, input.discordGuildId),
+        inArray(organizationClaims.status, ['pending', 'expired'])
       )
-  );
+    );
 
   const token = randomBytes(32).toString('base64url');
   const origin = new URL(requestUrl).origin;
-  const timestamp = now();
-  const claim: OrganizationClaimRecord = {
-    claimToken: token,
-    claimUrl: `${origin}/dashboard/onboarding/discord?claim=${token}`,
-    discordGuildId: input.discordGuildId,
-    discordGuildName: input.discordGuildName,
-    guildOwnerDiscordId: input.guildOwnerDiscordId,
-    commandUserDiscordId: input.commandUserDiscordId,
-    botUserDiscordId: input.botUserDiscordId,
-    botPermissions: input.botPermissions,
-    iconUrl: input.iconUrl ?? null,
-    memberCount: input.memberCount ?? null,
-    status: 'pending',
-    expiresAt: addMinutes(CLAIM_MINUTES),
-    createdAt: timestamp,
-    completedAt: null
-  };
+  const claimUrl = `${origin}/dashboard/onboarding/discord?claim=${token}`;
 
-  state.claims.push(claim);
-  addAuditLog(state, {
+  const [claim] = await db
+    .insert(organizationClaims)
+    .values({
+      claimToken: token,
+      claimUrl,
+      discordGuildId: input.discordGuildId,
+      discordGuildName: input.discordGuildName,
+      guildOwnerDiscordId: input.guildOwnerDiscordId,
+      commandUserDiscordId: input.commandUserDiscordId,
+      botUserDiscordId: input.botUserDiscordId,
+      botPermissions: input.botPermissions,
+      iconUrl: input.iconUrl ?? null,
+      memberCount: input.memberCount ?? null,
+      status: 'pending',
+      expiresAt: addMinutes(CLAIM_MINUTES)
+    })
+    .returning();
+
+  await addAuditLog({
     type: 'organization_claim_started',
     organizationId: null,
     discordGuildId: input.discordGuildId,
@@ -535,9 +470,16 @@ export function startOrganizationClaim(
   return toClaimResponse(claim);
 }
 
-export function getOrganizationClaimStatus(claimToken: string): OrganizationClaimStatus {
-  const state = getState();
-  const claim = state.claims.find((item) => item.claimToken === claimToken);
+export async function getOrganizationClaimStatus(
+  claimToken: string
+): Promise<OrganizationClaimStatus> {
+  await expireClaims();
+
+  const [claim] = await db
+    .select()
+    .from(organizationClaims)
+    .where(eq(organizationClaims.claimToken, claimToken))
+    .limit(1);
 
   if (!claim) {
     throw new ApiError('not_found', 'Resource not found.');
@@ -557,132 +499,145 @@ export function getOrganizationClaimStatus(claimToken: string): OrganizationClai
     guildOwnerDiscordId: claim.guildOwnerDiscordId,
     iconUrl: claim.iconUrl,
     status: claim.status,
-    expiresAt: claim.expiresAt
+    expiresAt: toIsoDateTime(claim.expiresAt)
   };
 }
 
-export function completeOrganizationClaim(userId: string, input: CompleteOrganizationClaimInput) {
-  const state = getState();
-  const user = state.users.find((item) => item.id === userId);
+export async function completeOrganizationClaim(
+  userId: string,
+  input: CompleteOrganizationClaimInput
+) {
+  await expireClaims();
 
-  if (!user) {
-    throw new ApiError('unauthorized', 'Sign in with Discord to continue.');
-  }
+  const { user } = await getUserContext(userId);
+  const result = await db.transaction(async (tx) => {
+    const [claim] = await tx
+      .select()
+      .from(organizationClaims)
+      .where(eq(organizationClaims.claimToken, input.claimToken))
+      .limit(1);
 
-  const claim = state.claims.find((item) => item.claimToken === input.claimToken);
-
-  if (!claim) {
-    throw new ApiError('not_found', 'Resource not found.');
-  }
-
-  if (claim.status === 'expired') {
-    throw new ApiError('claim_expired', 'This organization claim link has expired.');
-  }
-
-  if (claim.status !== 'pending') {
-    throw new ApiError('claim_consumed', 'This organization claim link has already been used.');
-  }
-
-  if (user.discordId !== claim.guildOwnerDiscordId) {
-    throw new ApiError('forbidden', 'The signed-in Discord user does not own this Discord guild.');
-  }
-
-  const existingLink = state.organizations.find(
-    (organization) => organization.discordGuild.discordGuildId === claim.discordGuildId
-  );
-
-  if (existingLink) {
-    throw new ApiError(
-      'discord_guild_already_linked',
-      'This Discord guild is already linked to a Rolvise organization.'
-    );
-  }
-
-  const timestamp = now();
-  const organizationId = randomUUID();
-  const discordGuild: DiscordGuildLink = {
-    discordGuildId: claim.discordGuildId,
-    name: claim.discordGuildName,
-    iconUrl: claim.iconUrl,
-    ownerDiscordId: claim.guildOwnerDiscordId,
-    status: 'linked',
-    memberCount: claim.memberCount,
-    linkedAt: timestamp,
-    lastSyncedAt: null
-  };
-  const organization: OrganizationRecord = {
-    id: organizationId,
-    name: input.organizationName,
-    slug: slugify(input.organizationName),
-    discordGuild,
-    createdAt: timestamp,
-    updatedAt: timestamp
-  };
-  const membership: OrganizationMembership = {
-    id: randomUUID(),
-    userId,
-    organizationId,
-    role: 'Owner',
-    permissions: ROLE_PERMISSIONS.Owner,
-    joinedAt: timestamp
-  };
-  const initialServer =
-    input.initialServerName || input.initialServerJoinCode
-      ? {
-          id: randomUUID(),
-          organizationId,
-          name: input.initialServerName ?? input.organizationName,
-          imageSeed: input.initialServerName?.slice(0, 3).toUpperCase() ?? null,
-          status: 'offline' as const,
-          robloxGroupId: null,
-          joinCode: input.initialServerJoinCode ?? 'SETUP',
-          memberCount: 0,
-          staffCount: 1,
-          activePlayers: 0,
-          openIncidents: 0,
-          lastSessionAt: null,
-          createdAt: timestamp,
-          updatedAt: timestamp
-        }
-      : null;
-
-  state.organizations.push(organization);
-  state.memberships.push(membership);
-
-  if (initialServer) {
-    state.managedServers.push(initialServer);
-  }
-
-  claim.status = 'completed';
-  claim.completedAt = timestamp;
-
-  addAuditLog(state, {
-    type: 'organization_claim_completed',
-    organizationId,
-    discordGuildId: claim.discordGuildId,
-    actorUserId: userId,
-    actorDiscordId: user.discordId,
-    metadata: {
-      organizationName: input.organizationName,
-      initialServerId: initialServer?.id ?? null
+    if (!claim) {
+      throw new ApiError('not_found', 'Resource not found.');
     }
+
+    if (claim.status === 'expired') {
+      throw new ApiError('claim_expired', 'This organization claim link has expired.');
+    }
+
+    if (claim.status !== 'pending') {
+      throw new ApiError('claim_consumed', 'This organization claim link has already been used.');
+    }
+
+    if (user.discordId !== claim.guildOwnerDiscordId) {
+      throw new ApiError(
+        'forbidden',
+        'The signed-in Discord user does not own this Discord guild.'
+      );
+    }
+
+    const [existingLink] = await tx
+      .select()
+      .from(discordGuildLinks)
+      .where(eq(discordGuildLinks.discordGuildId, claim.discordGuildId))
+      .limit(1);
+
+    if (existingLink) {
+      throw new ApiError(
+        'discord_guild_already_linked',
+        'This Discord guild is already linked to a Rolvise organization.'
+      );
+    }
+
+    const [organization] = await tx
+      .insert(organizations)
+      .values({
+        name: input.organizationName,
+        slug: slugify(input.organizationName)
+      })
+      .returning();
+    const [discordGuild] = await tx
+      .insert(discordGuildLinks)
+      .values({
+        organizationId: organization.id,
+        discordGuildId: claim.discordGuildId,
+        name: claim.discordGuildName,
+        iconUrl: claim.iconUrl,
+        ownerDiscordId: claim.guildOwnerDiscordId,
+        status: 'linked',
+        memberCount: claim.memberCount
+      })
+      .returning();
+    const [membership] = await tx
+      .insert(organizationMembers)
+      .values({
+        userId,
+        organizationId: organization.id,
+        role: 'Owner',
+        permissions: ROLE_PERMISSIONS.Owner
+      })
+      .returning();
+    const [initialServer] =
+      input.initialServerName || input.initialServerJoinCode
+        ? await tx
+            .insert(managedServers)
+            .values({
+              organizationId: organization.id,
+              name: input.initialServerName ?? input.organizationName,
+              imageSeed: input.initialServerName?.slice(0, 3).toUpperCase() ?? null,
+              status: 'offline',
+              robloxGroupId: null,
+              joinCode: input.initialServerJoinCode ?? 'SETUP',
+              memberCount: 0,
+              staffCount: 1,
+              activePlayers: 0,
+              openIncidents: 0
+            })
+            .returning()
+        : [null];
+
+    await tx
+      .update(organizationClaims)
+      .set({ status: 'completed', completedAt: new Date() })
+      .where(eq(organizationClaims.claimToken, input.claimToken));
+    await tx.insert(auditLogs).values({
+      type: 'organization_claim_completed',
+      organizationId: organization.id,
+      discordGuildId: claim.discordGuildId,
+      actorUserId: userId,
+      actorDiscordId: user.discordId,
+      metadata: {
+        organizationName: input.organizationName,
+        initialServerId: initialServer?.id ?? null
+      }
+    });
+
+    const orgRecord = toOrganizationRecord(organization, discordGuild);
+    const memberRecord = toMembership(membership);
+
+    return {
+      organization: toOrganizationSummary(orgRecord, memberRecord, initialServer ? 1 : 0),
+      membership: memberRecord,
+      discordGuild: toDiscordGuildLink(discordGuild),
+      initialServer: initialServer ? toManagedServer(initialServer) : null
+    };
   });
 
-  return {
-    organization: toOrganizationSummary(organization, membership, initialServer ? 1 : 0),
-    membership,
-    discordGuild,
-    initialServer
-  };
+  return result;
 }
 
-export function getBotGuildStatus(discordGuildId: string) {
-  const state = getState();
-  const organization = state.organizations.find(
-    (item) => item.discordGuild.discordGuildId === discordGuildId
-  );
+export async function getBotGuildStatus(discordGuildId: string) {
+  const [row] = await db
+    .select({
+      organization: organizations,
+      discordGuild: discordGuildLinks
+    })
+    .from(discordGuildLinks)
+    .innerJoin(organizations, eq(organizations.id, discordGuildLinks.organizationId))
+    .where(eq(discordGuildLinks.discordGuildId, discordGuildId))
+    .limit(1);
 
-  if (!organization) {
+  if (!row) {
     return {
       discordGuildId,
       linked: false,
@@ -696,21 +651,26 @@ export function getBotGuildStatus(discordGuildId: string) {
   return {
     discordGuildId,
     linked: true,
-    organizationId: organization.id,
-    organizationName: organization.name,
+    organizationId: row.organization.id,
+    organizationName: row.organization.name,
     status:
-      organization.discordGuild.status === 'disabled'
+      row.discordGuild.status === 'disabled'
         ? ('disabled' as const)
-        : organization.discordGuild.status === 'sync_required'
+        : row.discordGuild.status === 'sync_required'
           ? ('sync_required' as const)
           : ('linked' as const),
-    lastSyncedAt: organization.discordGuild.lastSyncedAt
+    lastSyncedAt: row.discordGuild.lastSyncedAt
+      ? toIsoDateTime(row.discordGuild.lastSyncedAt)
+      : null
   };
 }
 
-export function ingestBotEvent(event: BotEventInput) {
-  const state = getState();
-  const duplicate = state.botEvents.some((item) => item.eventId === event.eventId);
+export async function ingestBotEvent(event: BotEventInput) {
+  const [duplicate] = await db
+    .select({ eventId: botEvents.eventId })
+    .from(botEvents)
+    .where(eq(botEvents.eventId, event.eventId))
+    .limit(1);
 
   if (duplicate) {
     return {
@@ -720,39 +680,58 @@ export function ingestBotEvent(event: BotEventInput) {
     };
   }
 
-  const organization = state.organizations.find(
-    (item) => item.discordGuild.discordGuildId === event.discordGuildId
-  );
+  const [row] = await db
+    .select({
+      organization: organizations,
+      discordGuild: discordGuildLinks
+    })
+    .from(discordGuildLinks)
+    .innerJoin(organizations, eq(organizations.id, discordGuildLinks.organizationId))
+    .where(eq(discordGuildLinks.discordGuildId, event.discordGuildId))
+    .limit(1);
   const setupEventTypes = new Set(['setup_started', 'guild_installed', 'status_checked']);
 
-  if (!organization && !setupEventTypes.has(event.type)) {
+  if (!row && !setupEventTypes.has(event.type)) {
     throw new ApiError('forbidden', 'Bot events for unlinked Discord guilds are not accepted.');
   }
 
-  if (organization) {
-    if (event.type === 'guild_removed') {
-      organization.discordGuild.status = 'bot_missing';
-      organization.updatedAt = now();
-    }
-
-    if (['guild_sync', 'member_sync', 'role_sync', 'guild_installed'].includes(event.type)) {
-      organization.discordGuild.status = 'linked';
-      organization.discordGuild.lastSyncedAt = event.occurredAt;
-      organization.updatedAt = now();
-    }
-  }
-
-  state.botEvents.push(event);
-  addAuditLog(state, {
-    type: `bot_${event.type}`,
-    organizationId: organization?.id ?? null,
-    discordGuildId: event.discordGuildId,
-    actorUserId: null,
-    actorDiscordId: event.actorDiscordId ?? null,
-    metadata: {
+  await db.transaction(async (tx) => {
+    await tx.insert(botEvents).values({
       eventId: event.eventId,
+      type: event.type,
+      discordGuildId: event.discordGuildId,
+      occurredAt: new Date(event.occurredAt),
+      actorDiscordId: event.actorDiscordId ?? null,
       payload: event.payload ?? null
+    });
+
+    if (row) {
+      if (event.type === 'guild_removed') {
+        await tx
+          .update(discordGuildLinks)
+          .set({ status: 'bot_missing' })
+          .where(eq(discordGuildLinks.id, row.discordGuild.id));
+      }
+
+      if (['guild_sync', 'member_sync', 'role_sync', 'guild_installed'].includes(event.type)) {
+        await tx
+          .update(discordGuildLinks)
+          .set({ status: 'linked', lastSyncedAt: new Date(event.occurredAt) })
+          .where(eq(discordGuildLinks.id, row.discordGuild.id));
+      }
     }
+
+    await tx.insert(auditLogs).values({
+      type: `bot_${event.type}`,
+      organizationId: row?.organization.id ?? null,
+      discordGuildId: event.discordGuildId,
+      actorUserId: null,
+      actorDiscordId: event.actorDiscordId ?? null,
+      metadata: {
+        eventId: event.eventId,
+        payload: event.payload ?? null
+      }
+    });
   });
 
   return {

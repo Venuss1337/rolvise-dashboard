@@ -5,8 +5,8 @@ import { NextRequest } from 'next/server';
 
 export async function GET(request: NextRequest) {
   try {
-    const { user } = requireSession(request);
-    return json(getMe(user.id));
+    const { user } = await requireSession(request);
+    return json(await getMe(user.id));
   } catch (error) {
     return errorResponse(error);
   }

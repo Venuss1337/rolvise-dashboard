@@ -14,7 +14,7 @@ export async function GET(request: NextRequest, { params }: RouteContext) {
     const { discordGuildId } = await params;
     const parsedDiscordGuildId = discordSnowflakeSchema.parse(discordGuildId);
 
-    return json(getBotGuildStatus(parsedDiscordGuildId));
+    return json(await getBotGuildStatus(parsedDiscordGuildId));
   } catch (error) {
     return errorResponse(error);
   }

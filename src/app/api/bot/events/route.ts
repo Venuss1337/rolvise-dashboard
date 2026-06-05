@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     requireBotSignature(request, rawBody);
 
     const event = botEventSchema.parse(parseJson(rawBody));
-    return json(ingestBotEvent(event), { status: 202 });
+    return json(await ingestBotEvent(event), { status: 202 });
   } catch (error) {
     return errorResponse(error);
   }

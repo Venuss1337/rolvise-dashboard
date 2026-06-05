@@ -11,12 +11,12 @@ interface RouteContext {
 export async function GET(request: NextRequest, { params }: RouteContext) {
   try {
     const { organizationId } = await params;
-    const { user } = requireSession(request);
+    const { user } = await requireSession(request);
     const filters = managedServerQuerySchema.parse(
       Object.fromEntries(request.nextUrl.searchParams)
     );
 
-    return json(listManagedServers(user.id, organizationId, filters));
+    return json(await listManagedServers(user.id, organizationId, filters));
   } catch (error) {
     return errorResponse(error);
   }

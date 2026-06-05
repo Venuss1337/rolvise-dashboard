@@ -9,10 +9,10 @@ interface RouteContext {
 
 export async function GET(request: NextRequest, { params }: RouteContext) {
   try {
-    requireSession(request);
+    await requireSession(request);
     const { claimToken } = await params;
 
-    return json(getOrganizationClaimStatus(claimToken));
+    return json(await getOrganizationClaimStatus(claimToken));
   } catch (error) {
     return errorResponse(error);
   }

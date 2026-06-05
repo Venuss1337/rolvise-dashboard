@@ -6,10 +6,10 @@ import { NextRequest } from 'next/server';
 
 export async function POST(request: NextRequest) {
   try {
-    const { user } = requireSession(request);
+    const { user } = await requireSession(request);
     const values = completeOrganizationClaimSchema.parse(await readJson(request));
 
-    return json(completeOrganizationClaim(user.id, values), { status: 201 });
+    return json(await completeOrganizationClaim(user.id, values), { status: 201 });
   } catch (error) {
     return errorResponse(error);
   }

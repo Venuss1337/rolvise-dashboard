@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils';
 import { Metadata } from 'next';
 import Link from 'next/link';
+import { AuthFeedback } from './auth-feedback';
 import { DiscordAuthButton } from './discord-auth-button';
 import { InteractiveGridPattern } from './interactive-grid';
 
@@ -59,6 +60,7 @@ export default function SignInViewPage() {
               Use Discord to access the ER:LC communities you manage.
             </p>
           </div>
+          <AuthFeedback />
           <DiscordAuthButton />
 
           <p className='text-muted-foreground px-8 text-center text-sm'>

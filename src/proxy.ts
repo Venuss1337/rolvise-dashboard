@@ -1,14 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-const SESSION_COOKIE = 'better-auth.session_token';
+const SESSION_COOKIE_ALIASES = [
+  'better-auth.session_token',
+  '__Secure-better-auth.session_token',
+  'better-auth-session_token',
+  '__Secure-better-auth-session_token'
+];
+
+function hasBetterAuthSession(req: NextRequest) {
+  return req.cookies
+    .getAll()
+    .some((cookie) =>
+      SESSION_COOKIE_ALIASES.some(
+        (name) => cookie.name === name || cookie.name.startsWith(`${name}.`)
+      )
+    );
+}
 
 export default function proxy(req: NextRequest) {
   const isDashboardRoute = req.nextUrl.pathname.startsWith('/dashboard');
   const isAuthRoute = req.nextUrl.pathname.startsWith('/auth');
-  const hasSession = req.cookies.has(SESSION_COOKIE);
+  const hasSession = hasBetterAuthSession(req);
 
   if (isDashboardRoute && !hasSession) {
-    return NextResponse.redirect(new URL('/auth/sign-in', req.url));
+    const signInUrl = new URL('/auth/sign-in', req.url);
+
+    signInUrl.searchParams.set('auth', 'missing-session');
+    signInUrl.searchParams.set('next', `${req.nextUrl.pathname}${req.nextUrl.search}`);
+
+    return NextResponse.redirect(signInUrl);
   }
 
   if (isAuthRoute && hasSession) {

@@ -20,6 +20,7 @@ export function DiscordAuthButton() {
     setIsLoading(true);
 
     try {
+      toast.info('Starting Discord sign-in...');
       const params = new URLSearchParams(window.location.search);
       const response = await fetch('/api/auth/discord/start', {
         method: 'POST',
@@ -37,6 +38,7 @@ export function DiscordAuthButton() {
         throw new Error('Discord authorization URL was not returned.');
       }
 
+      toast.success('Redirecting to Discord...');
       window.location.assign(data.authorizationUrl);
     } catch {
       setIsLoading(false);

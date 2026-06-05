@@ -7,6 +7,7 @@ import type { ManagedServer, ManagedServerRole } from '@/features/servers/api/ty
 import { useSelectedServer } from '@/features/servers/hooks/use-selected-server';
 
 type CommunityPermission =
+  | 'mdt:open'
   | 'community:view'
   | 'community:manage'
   | 'staff:view'
@@ -26,7 +27,8 @@ const rolePermissions: Record<ManagedServerRole, CommunityPermission[]> = {
     'settings:manage'
   ],
   Admin: ['community:view', 'staff:view', 'staff:manage', 'cases:view', 'cases:manage'],
-  Moderator: ['community:view', 'staff:view', 'cases:view', 'cases:manage']
+  Moderator: ['mdt:open', 'community:view', 'staff:view', 'cases:view', 'cases:manage'],
+  Member: ['mdt:open']
 };
 
 export type CommunityUser = {

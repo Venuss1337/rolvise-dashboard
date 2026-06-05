@@ -1,4 +1,4 @@
-export type OrganizationRole = 'Owner' | 'Admin' | 'Moderator';
+export type OrganizationRole = 'Owner' | 'Admin' | 'Moderator' | 'Member';
 
 export type OrganizationPermission =
   | 'community:view'

@@ -36,24 +36,27 @@ const sortOptions: Array<{ value: MemberSortKey; label: string }> = [
 ];
 
 export function MembersTable() {
-  const { communityId } = useCommunity();
+  const { communityId, organizationId } = useCommunity();
   const searchParams = useSearchParams();
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState(searchParams.get('role') ?? 'all');
   const [sortBy, setSortBy] = useState<MemberSortKey>('displayName');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
-  const { data: roles } = useSuspenseQuery(rolesQueryOptions(communityId ?? ''));
+  const { data: roles } = useSuspenseQuery(
+    rolesQueryOptions(organizationId ?? '', communityId ?? '')
+  );
   const roleById = useMemo(() => new Map(roles.map((role) => [role.id, role])), [roles]);
 
   const filters = useMemo(
     () => ({
       communityId: communityId ?? '',
+      organizationId: organizationId ?? '',
       search,
       role: roleFilter,
       sortBy,
       sortDirection
     }),
-    [communityId, roleFilter, search, sortBy, sortDirection]
+    [communityId, organizationId, roleFilter, search, sortBy, sortDirection]
   );
 
   const { data: members } = useSuspenseQuery(membersQueryOptions(filters));
@@ -132,7 +135,10 @@ export function MembersTable() {
                   <TableCell>
                     <div className='flex items-center gap-3'>
                       <Avatar className='size-9'>
-                        <AvatarImage src={member.discordAvatarUrl} alt={member.discordUsername} />
+                        <AvatarImage
+                          src={member.discordAvatarUrl ?? undefined}
+                          alt={member.discordUsername}
+                        />
                         <AvatarFallback>
                           {member.displayName.slice(0, 2).toUpperCase()}
                         </AvatarFallback>

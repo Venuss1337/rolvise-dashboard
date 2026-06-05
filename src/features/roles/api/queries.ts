@@ -3,19 +3,20 @@ import { getCommunityRoleById, getCommunityRoles } from './service';
 
 export const roleKeys = {
   all: ['roles'] as const,
-  list: (communityId: string) => [...roleKeys.all, 'list', communityId] as const,
-  detail: (communityId: string, roleId: string) =>
-    [...roleKeys.all, 'detail', communityId, roleId] as const
+  list: (organizationId: string, communityId: string) =>
+    [...roleKeys.all, 'list', organizationId, communityId] as const,
+  detail: (organizationId: string, communityId: string, roleId: string) =>
+    [...roleKeys.all, 'detail', organizationId, communityId, roleId] as const
 };
 
-export const rolesQueryOptions = (communityId: string) =>
+export const rolesQueryOptions = (organizationId: string, communityId: string) =>
   queryOptions({
-    queryKey: roleKeys.list(communityId),
-    queryFn: () => getCommunityRoles(communityId)
+    queryKey: roleKeys.list(organizationId, communityId),
+    queryFn: () => getCommunityRoles(organizationId, communityId)
   });
 
-export const roleByIdOptions = (communityId: string, roleId: string) =>
+export const roleByIdOptions = (organizationId: string, communityId: string, roleId: string) =>
   queryOptions({
-    queryKey: roleKeys.detail(communityId, roleId),
-    queryFn: () => getCommunityRoleById(communityId, roleId)
+    queryKey: roleKeys.detail(organizationId, communityId, roleId),
+    queryFn: () => getCommunityRoleById(organizationId, communityId, roleId)
   });

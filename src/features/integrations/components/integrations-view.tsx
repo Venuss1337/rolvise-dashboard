@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
 import PageContainer from '@/components/layout/page-container';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,6 +39,9 @@ import { ErlcSettingsForm } from '@/features/settings/components/erlc-settings-f
 import { GeneralSettingsForm } from '@/features/settings/components/general-settings-form';
 import { SessionsSettingsForm } from '@/features/settings/components/sessions-settings-form';
 import { SettingsStateProvider } from '@/features/settings/components/settings-state-context';
+import { useCommunity } from '@/features/community/hooks/use-community';
+import { createDashboardInvite } from '../api/service';
+import type { DashboardInvite } from '../api/types';
 
 type IntegrationType = 'community' | 'discord' | 'erlc';
 
@@ -136,6 +140,7 @@ export function IntegrationsView() {
       }
     >
       <div className='grid grid-cols-[repeat(auto-fill,minmax(220px,240px))] gap-3'>
+        <GenerateJoinLinkCard />
         {integrations.map((integration) => (
           <IntegrationCard
             key={integration.id}
@@ -158,6 +163,70 @@ export function IntegrationsView() {
         }}
       />
     </PageContainer>
+  );
+}
+
+function GenerateJoinLinkCard() {
+  const { organizationId, community } = useCommunity();
+  const [invite, setInvite] = useState<DashboardInvite | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  async function generateInvite() {
+    if (!organizationId || !community) {
+      toast.error('Select a server before generating a join link.');
+      return;
+    }
+
+    try {
+      setIsGenerating(true);
+      const nextInvite = await createDashboardInvite(organizationId, {
+        serverId: community.id,
+        expiresInHours: 24 * 7
+      });
+      setInvite(nextInvite);
+      await navigator.clipboard.writeText(nextInvite.inviteUrl);
+      toast.success('Join link generated and copied.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Join link could not be generated.');
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  async function copyInvite() {
+    if (!invite) return;
+
+    await navigator.clipboard.writeText(invite.inviteUrl);
+    toast.success('Join link copied.');
+  }
+
+  return (
+    <article className='flex h-64 flex-col justify-between rounded-lg border bg-background p-4'>
+      <div className='space-y-4'>
+        <div className='flex items-start justify-between gap-3'>
+          <div className='flex size-11 shrink-0 items-center justify-center rounded-md border bg-muted/40'>
+            <Icons.share className='size-5' />
+          </div>
+          <Badge variant='outline'>Invite</Badge>
+        </div>
+
+        <div className='min-w-0'>
+          <h2 className='line-clamp-2 min-h-12 font-semibold'>Dashboard Join Link</h2>
+          <p className='mt-1 text-sm text-muted-foreground'>
+            {community ? `${community.name} · Member access` : 'Select a server first'}
+          </p>
+        </div>
+      </div>
+
+      <div className='space-y-2 pt-5'>
+        {invite && (
+          <Input className='h-8 text-xs' readOnly value={invite.inviteUrl} onClick={copyInvite} />
+        )}
+        <Button size='sm' className='w-full' isLoading={isGenerating} onClick={generateInvite}>
+          Generate Join Link
+        </Button>
+      </div>
+    </article>
   );
 }
 
@@ -268,7 +337,7 @@ function NewIntegrationDialog({ onSetup }: { onSetup: (integration: Integration)
 
         <div className='space-y-4'>
           <div className='grid gap-2'>
-            <label className='text-sm font-medium'>Type</label>
+            <div className='text-sm font-medium'>Type</div>
             <Select
               value={type}
               onValueChange={(value) => {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import {
@@ -30,18 +30,9 @@ import {
 import { Icons } from '@/components/icons';
 import { useCommunity } from '@/features/community/hooks/use-community';
 import { roleKeys } from '../api/queries';
+import { createCommunityRole, updateCommunityRole } from '../api/service';
 import type { CommunityRole } from '../api/types';
 import { ROLE_PERMISSION_OPTIONS } from '../constants/permissions';
-
-function createRoleId(name: string) {
-  return (
-    name
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '') || `role-${Date.now()}`
-  );
-}
 
 export function RoleFormDialog({
   role,
@@ -53,7 +44,7 @@ export function RoleFormDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const isEdit = !!role;
-  const { communityId } = useCommunity();
+  const { communityId, organizationId } = useCommunity();
   const queryClient = useQueryClient();
   const [name, setName] = useState(role?.name ?? '');
   const [color, setColor] = useState(role?.color ?? '#3b82f6');
@@ -83,30 +74,46 @@ export function RoleFormDialog({
   }
 
   function handleSubmit() {
-    if (!communityId || !name.trim()) return;
+    if (!organizationId || !communityId || !name.trim()) return;
 
-    const nextRole: CommunityRole = {
-      id: role?.id ?? createRoleId(name),
-      communityId,
-      name: name.trim(),
-      color,
-      permissions,
-      memberCount: role?.memberCount ?? 0
-    };
+    mutation.mutate();
+  }
 
-    queryClient.setQueryData<CommunityRole[]>(roleKeys.list(communityId), (currentRoles = []) => {
-      if (isEdit) {
-        return currentRoles.map((currentRole) =>
-          currentRole.id === nextRole.id ? nextRole : currentRole
-        );
+  const mutation = useMutation({
+    mutationFn: () => {
+      if (!organizationId || !communityId) {
+        throw new Error('Select a server before saving roles.');
       }
 
-      return [...currentRoles, nextRole];
-    });
+      if (role) {
+        return updateCommunityRole(organizationId, role.id, {
+          name: name.trim(),
+          color,
+          permissions
+        });
+      }
 
-    toast.success(isEdit ? 'Role saved' : 'Role created');
-    onOpenChange(false);
-  }
+      return createCommunityRole(organizationId, {
+        serverId: communityId,
+        name: name.trim(),
+        color,
+        permissions
+      });
+    },
+    onSuccess: () => {
+      if (organizationId && communityId) {
+        queryClient.invalidateQueries({
+          queryKey: roleKeys.list(organizationId, communityId)
+        });
+      }
+
+      toast.success(isEdit ? 'Role saved' : 'Role created');
+      onOpenChange(false);
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'Role could not be saved.');
+    }
+  });
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -221,7 +228,12 @@ export function RoleFormDialog({
           <Button type='button' variant='outline' onClick={() => handleOpenChange(false)}>
             Cancel
           </Button>
-          <Button type='button' onClick={handleSubmit} disabled={!name.trim()}>
+          <Button
+            type='button'
+            isLoading={mutation.isPending}
+            onClick={handleSubmit}
+            disabled={!name.trim()}
+          >
             {isEdit ? 'Save' : 'Create'}
           </Button>
         </DialogFooter>

@@ -1,7 +1,8 @@
 export type DiscordSnowflake = string;
 export type IsoDateTime = string;
-export type OrganizationRole = 'Owner' | 'Admin' | 'Moderator';
+export type OrganizationRole = 'Owner' | 'Admin' | 'Moderator' | 'Member';
 export type OrganizationPermission =
+  | 'mdt:open'
   | 'community:view'
   | 'community:manage'
   | 'staff:view'
@@ -114,6 +115,62 @@ export interface CursorPageInfo {
 export interface ManagedServerListResponse {
   items: ManagedServer[];
   pageInfo: CursorPageInfo;
+}
+
+export interface CommunityRole {
+  id: string;
+  communityId: string;
+  organizationId: string;
+  name: string;
+  color: string;
+  permissions: string[];
+  memberCount: number;
+  position: number;
+  systemKey: string | null;
+  createdAt: IsoDateTime;
+  updatedAt: IsoDateTime;
+}
+
+export interface CommunityMember {
+  id: string;
+  communityId: string;
+  organizationId: string;
+  userId: string | null;
+  discordId: DiscordSnowflake;
+  discordUsername: string;
+  discordAvatarUrl: string | null;
+  displayName: string;
+  roles: string[];
+  joinedAt: IsoDateTime;
+  lastSeenAt: IsoDateTime | null;
+}
+
+export interface CommunityMemberListResponse {
+  items: CommunityMember[];
+}
+
+export interface DashboardInvite {
+  id: string;
+  organizationId: string;
+  communityId: string;
+  token: string;
+  inviteUrl: string;
+  roleId: string | null;
+  maxUses: number | null;
+  useCount: number;
+  expiresAt: IsoDateTime | null;
+  revokedAt: IsoDateTime | null;
+  createdAt: IsoDateTime;
+}
+
+export interface DashboardInvitePreview {
+  token: string;
+  organizationId: string;
+  organizationName: string;
+  communityId: string;
+  communityName: string;
+  role: CommunityRole | null;
+  expiresAt: IsoDateTime | null;
 }
 
 export type OrganizationClaimLifecycleStatus = 'pending' | 'completed' | 'expired' | 'revoked';

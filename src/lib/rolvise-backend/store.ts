@@ -3,6 +3,10 @@ import {
   account,
   auditLogs,
   botEvents,
+  communityMemberRoles,
+  communityMembers,
+  communityRoles,
+  dashboardInvites,
   discordGuildLinks,
   managedServers,
   organizationClaims,
@@ -10,9 +14,14 @@ import {
   organizations,
   user
 } from '@/db/schema';
-import { and, asc, count, eq, gt, inArray, lte } from 'drizzle-orm';
+import { and, asc, count, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 import { randomBytes } from 'crypto';
 import type {
+  CommunityMember,
+  CommunityMemberListResponse,
+  CommunityRole,
+  DashboardInvite,
+  DashboardInvitePreview,
   DiscordGuildLink,
   DiscordProfile,
   ManagedServer,
@@ -31,12 +40,17 @@ import type {
 } from './types';
 import type {
   BotEventInput,
+  CommunityMemberQueryInput,
+  CommunityRoleInput,
+  CommunityRolePatchInput,
   CompleteOrganizationClaimInput,
+  CreateDashboardInviteInput,
   StartOrganizationClaimInput
 } from './validation';
 import { ApiError } from './http';
 
 const OWNER_PERMISSIONS: OrganizationPermission[] = [
+  'mdt:open',
   'community:view',
   'community:manage',
   'staff:view',
@@ -49,6 +63,7 @@ const OWNER_PERMISSIONS: OrganizationPermission[] = [
 const ROLE_PERMISSIONS: Record<OrganizationRole, OrganizationPermission[]> = {
   Owner: OWNER_PERMISSIONS,
   Admin: [
+    'mdt:open',
     'community:view',
     'community:manage',
     'staff:view',
@@ -56,7 +71,8 @@ const ROLE_PERMISSIONS: Record<OrganizationRole, OrganizationPermission[]> = {
     'cases:view',
     'cases:manage'
   ],
-  Moderator: ['community:view', 'staff:view', 'cases:view', 'cases:manage']
+  Moderator: ['mdt:open', 'community:view', 'staff:view', 'cases:view', 'cases:manage'],
+  Member: ['mdt:open']
 };
 
 const CLAIM_MINUTES = 15;
@@ -67,6 +83,9 @@ type Organization = typeof organizations.$inferSelect;
 type OrganizationMember = typeof organizationMembers.$inferSelect;
 type DiscordGuildLinkRow = typeof discordGuildLinks.$inferSelect;
 type ManagedServerRow = typeof managedServers.$inferSelect;
+type CommunityRoleRow = typeof communityRoles.$inferSelect;
+type CommunityMemberRow = typeof communityMembers.$inferSelect;
+type DashboardInviteRow = typeof dashboardInvites.$inferSelect;
 type OrganizationClaimRow = typeof organizationClaims.$inferSelect;
 
 function addMinutes(minutes: number) {
@@ -148,6 +167,56 @@ function toManagedServer(row: ManagedServerRow): ManagedServer {
     lastSessionAt: row.lastSessionAt ? toIsoDateTime(row.lastSessionAt) : null,
     createdAt: toIsoDateTime(row.createdAt),
     updatedAt: toIsoDateTime(row.updatedAt)
+  };
+}
+
+function toCommunityRole(row: CommunityRoleRow, memberCount = 0): CommunityRole {
+  return {
+    id: row.id,
+    communityId: row.managedServerId,
+    organizationId: row.organizationId,
+    name: row.name,
+    color: row.color,
+    permissions: row.permissions,
+    memberCount,
+    position: row.position,
+    systemKey: row.systemKey,
+    createdAt: toIsoDateTime(row.createdAt),
+    updatedAt: toIsoDateTime(row.updatedAt)
+  };
+}
+
+function toCommunityMember(row: CommunityMemberRow, roles: string[]): CommunityMember {
+  return {
+    id: row.id,
+    communityId: row.managedServerId,
+    organizationId: row.organizationId,
+    userId: row.userId,
+    discordId: row.discordId,
+    discordUsername: row.discordUsername,
+    discordAvatarUrl: row.discordAvatarUrl,
+    displayName: row.displayName,
+    roles,
+    joinedAt: toIsoDateTime(row.joinedAt),
+    lastSeenAt: row.lastSeenAt ? toIsoDateTime(row.lastSeenAt) : null
+  };
+}
+
+function toDashboardInvite(row: DashboardInviteRow, requestUrl: string): DashboardInvite {
+  const origin = new URL(requestUrl).origin;
+
+  return {
+    id: row.id,
+    organizationId: row.organizationId,
+    communityId: row.managedServerId,
+    token: row.token,
+    inviteUrl: `${origin}/join/${row.token}`,
+    roleId: row.roleId,
+    maxUses: row.maxUses,
+    useCount: row.useCount,
+    expiresAt: row.expiresAt ? toIsoDateTime(row.expiresAt) : null,
+    revokedAt: row.revokedAt ? toIsoDateTime(row.revokedAt) : null,
+    createdAt: toIsoDateTime(row.createdAt)
   };
 }
 
@@ -393,6 +462,493 @@ export async function listManagedServers(
       hasNextPage: Boolean(next),
       nextCursor: next?.id ?? null
     }
+  };
+}
+
+async function getManagedServerForOrganization(organizationId: string, serverId: string) {
+  const [server] = await db
+    .select()
+    .from(managedServers)
+    .where(and(eq(managedServers.id, serverId), eq(managedServers.organizationId, organizationId)))
+    .limit(1);
+
+  if (!server) {
+    throw new ApiError('not_found', 'Managed server was not found in this organization.');
+  }
+
+  return server;
+}
+
+async function requireOrganizationManager(userId: string, organizationId: string) {
+  const detail = await getOrganizationDetail(userId, organizationId);
+
+  if (!['Owner', 'Admin'].includes(detail.role)) {
+    throw new ApiError('forbidden', 'You do not have permission to manage this organization.');
+  }
+
+  return detail;
+}
+
+async function ensureDefaultCommunityRoles(organizationId: string, serverId: string) {
+  const existing = await db
+    .select()
+    .from(communityRoles)
+    .where(eq(communityRoles.managedServerId, serverId))
+    .limit(1);
+
+  if (existing.length > 0) {
+    return;
+  }
+
+  await db.insert(communityRoles).values([
+    {
+      organizationId,
+      managedServerId: serverId,
+      name: 'Owner',
+      color: '#f59e0b',
+      permissions: ROLE_PERMISSIONS.Owner,
+      position: 0,
+      systemKey: 'owner'
+    },
+    {
+      organizationId,
+      managedServerId: serverId,
+      name: 'Admin',
+      color: '#ef4444',
+      permissions: ROLE_PERMISSIONS.Admin,
+      position: 1,
+      systemKey: 'admin'
+    },
+    {
+      organizationId,
+      managedServerId: serverId,
+      name: 'Moderator',
+      color: '#3b82f6',
+      permissions: ROLE_PERMISSIONS.Moderator,
+      position: 2,
+      systemKey: 'moderator'
+    },
+    {
+      organizationId,
+      managedServerId: serverId,
+      name: 'Member',
+      color: '#64748b',
+      permissions: ROLE_PERMISSIONS.Member,
+      position: 3,
+      systemKey: 'member'
+    }
+  ]);
+}
+
+async function getRoleMemberCount(roleId: string) {
+  const [result] = await db
+    .select({ value: count() })
+    .from(communityMemberRoles)
+    .where(eq(communityMemberRoles.roleId, roleId));
+
+  return result?.value ?? 0;
+}
+
+async function getSystemRole(
+  organizationId: string,
+  serverId: string,
+  systemKey: 'owner' | 'admin' | 'moderator' | 'member'
+) {
+  await ensureDefaultCommunityRoles(organizationId, serverId);
+
+  const [role] = await db
+    .select()
+    .from(communityRoles)
+    .where(
+      and(
+        eq(communityRoles.organizationId, organizationId),
+        eq(communityRoles.managedServerId, serverId),
+        eq(communityRoles.systemKey, systemKey)
+      )
+    )
+    .limit(1);
+
+  return role ?? null;
+}
+
+async function ensureCommunityMemberForUser(values: {
+  userId: string;
+  organizationId: string;
+  serverId: string;
+  roleSystemKey: 'owner' | 'admin' | 'moderator' | 'member';
+  roleId?: string | null;
+}) {
+  const context = await getUserContext(values.userId);
+  const [existing] = await db
+    .select()
+    .from(communityMembers)
+    .where(
+      and(
+        eq(communityMembers.managedServerId, values.serverId),
+        eq(communityMembers.discordId, context.discord.id)
+      )
+    )
+    .limit(1);
+
+  const member =
+    existing ??
+    (
+      await db
+        .insert(communityMembers)
+        .values({
+          organizationId: values.organizationId,
+          managedServerId: values.serverId,
+          userId: values.userId,
+          discordId: context.discord.id,
+          discordUsername: context.discord.username,
+          discordAvatarUrl: context.discord.avatarUrl,
+          displayName: context.discord.globalName ?? context.discord.username
+        })
+        .returning()
+    )[0];
+
+  const systemRole = await getSystemRole(
+    values.organizationId,
+    values.serverId,
+    values.roleSystemKey
+  );
+  const roleIds = [values.roleId, systemRole?.id].filter((roleId): roleId is string => !!roleId);
+
+  for (const roleId of roleIds) {
+    await db
+      .insert(communityMemberRoles)
+      .values({ memberId: member.id, roleId })
+      .onConflictDoNothing();
+  }
+
+  return member;
+}
+
+export async function listCommunityRoles(
+  userId: string,
+  organizationId: string,
+  serverId: string
+): Promise<CommunityRole[]> {
+  await getOrganizationDetail(userId, organizationId);
+  await getManagedServerForOrganization(organizationId, serverId);
+  await ensureDefaultCommunityRoles(organizationId, serverId);
+
+  const roles = await db
+    .select()
+    .from(communityRoles)
+    .where(
+      and(
+        eq(communityRoles.organizationId, organizationId),
+        eq(communityRoles.managedServerId, serverId)
+      )
+    )
+    .orderBy(asc(communityRoles.position), asc(communityRoles.name));
+
+  return Promise.all(
+    roles.map(async (role) => toCommunityRole(role, await getRoleMemberCount(role.id)))
+  );
+}
+
+export async function createCommunityRole(
+  userId: string,
+  organizationId: string,
+  input: CommunityRoleInput
+): Promise<CommunityRole> {
+  await requireOrganizationManager(userId, organizationId);
+  await getManagedServerForOrganization(organizationId, input.serverId);
+
+  const existingRoles = await listCommunityRoles(userId, organizationId, input.serverId);
+  const [role] = await db
+    .insert(communityRoles)
+    .values({
+      organizationId,
+      managedServerId: input.serverId,
+      name: input.name,
+      color: input.color,
+      permissions: input.permissions,
+      position: existingRoles.length
+    })
+    .returning();
+
+  return toCommunityRole(role, 0);
+}
+
+export async function updateCommunityRole(
+  userId: string,
+  organizationId: string,
+  roleId: string,
+  input: CommunityRolePatchInput
+): Promise<CommunityRole> {
+  await requireOrganizationManager(userId, organizationId);
+
+  const [current] = await db
+    .select()
+    .from(communityRoles)
+    .where(and(eq(communityRoles.id, roleId), eq(communityRoles.organizationId, organizationId)))
+    .limit(1);
+
+  if (!current) {
+    throw new ApiError('not_found', 'Resource not found.');
+  }
+
+  const [role] = await db
+    .update(communityRoles)
+    .set(input)
+    .where(eq(communityRoles.id, roleId))
+    .returning();
+
+  return toCommunityRole(role, await getRoleMemberCount(role.id));
+}
+
+export async function deleteCommunityRole(userId: string, organizationId: string, roleId: string) {
+  await requireOrganizationManager(userId, organizationId);
+
+  const [role] = await db
+    .select()
+    .from(communityRoles)
+    .where(and(eq(communityRoles.id, roleId), eq(communityRoles.organizationId, organizationId)))
+    .limit(1);
+
+  if (!role) {
+    throw new ApiError('not_found', 'Resource not found.');
+  }
+
+  if (role.systemKey) {
+    throw new ApiError('forbidden', 'System roles cannot be deleted.');
+  }
+
+  await db.delete(communityRoles).where(eq(communityRoles.id, roleId));
+
+  return { deleted: true as const };
+}
+
+export async function listCommunityMembers(
+  userId: string,
+  organizationId: string,
+  input: CommunityMemberQueryInput
+): Promise<CommunityMemberListResponse> {
+  const detail = await getOrganizationDetail(userId, organizationId);
+  await getManagedServerForOrganization(organizationId, input.serverId);
+  await ensureDefaultCommunityRoles(organizationId, input.serverId);
+  await ensureCommunityMemberForUser({
+    userId,
+    organizationId,
+    serverId: input.serverId,
+    roleSystemKey:
+      detail.role === 'Owner'
+        ? 'owner'
+        : detail.role === 'Admin'
+          ? 'admin'
+          : detail.role === 'Moderator'
+            ? 'moderator'
+            : 'member'
+  });
+
+  const rows = await db
+    .select()
+    .from(communityMembers)
+    .where(
+      and(
+        eq(communityMembers.organizationId, organizationId),
+        eq(communityMembers.managedServerId, input.serverId)
+      )
+    )
+    .orderBy(
+      input.sortBy === 'joinedAt'
+        ? asc(communityMembers.joinedAt)
+        : input.sortBy === 'discordUsername'
+          ? asc(communityMembers.discordUsername)
+          : asc(communityMembers.displayName)
+    );
+
+  const members = await Promise.all(
+    rows.map(async (member) => {
+      const roleRows = await db
+        .select({ roleId: communityMemberRoles.roleId })
+        .from(communityMemberRoles)
+        .where(eq(communityMemberRoles.memberId, member.id));
+
+      return toCommunityMember(
+        member,
+        roleRows.map((role) => role.roleId)
+      );
+    })
+  );
+  const normalizedSearch = input.search?.trim().toLowerCase() ?? '';
+  const filtered = members.filter((member) => {
+    if (normalizedSearch) {
+      const haystack = `${member.displayName} ${member.discordUsername}`.toLowerCase();
+
+      if (!haystack.includes(normalizedSearch)) {
+        return false;
+      }
+    }
+
+    if (input.role === 'none') {
+      return member.roles.length === 0;
+    }
+
+    if (input.role && input.role !== 'all') {
+      return member.roles.includes(input.role);
+    }
+
+    return true;
+  });
+
+  return {
+    items:
+      input.sortDirection === 'desc'
+        ? filtered.reduce<CommunityMember[]>((items, member) => [member, ...items], [])
+        : filtered
+  };
+}
+
+export async function createDashboardInvite(
+  userId: string,
+  organizationId: string,
+  input: CreateDashboardInviteInput,
+  requestUrl: string
+): Promise<DashboardInvite> {
+  await requireOrganizationManager(userId, organizationId);
+  await getManagedServerForOrganization(organizationId, input.serverId);
+  await ensureDefaultCommunityRoles(organizationId, input.serverId);
+
+  const role =
+    input.roleId === undefined || input.roleId === null
+      ? await getSystemRole(organizationId, input.serverId, 'member')
+      : (
+          await db
+            .select()
+            .from(communityRoles)
+            .where(
+              and(
+                eq(communityRoles.id, input.roleId),
+                eq(communityRoles.organizationId, organizationId),
+                eq(communityRoles.managedServerId, input.serverId)
+              )
+            )
+            .limit(1)
+        )[0];
+
+  if (!role) {
+    throw new ApiError('not_found', 'Invite role was not found.');
+  }
+
+  const token = randomBytes(24).toString('base64url');
+  const [invite] = await db
+    .insert(dashboardInvites)
+    .values({
+      organizationId,
+      managedServerId: input.serverId,
+      token,
+      roleId: role.id,
+      createdByUserId: userId,
+      maxUses: input.maxUses ?? null,
+      expiresAt: input.expiresInHours ? addMinutes(input.expiresInHours * 60) : null
+    })
+    .returning();
+
+  return toDashboardInvite(invite, requestUrl);
+}
+
+export async function getDashboardInvitePreview(token: string): Promise<DashboardInvitePreview> {
+  const [row] = await db
+    .select({
+      invite: dashboardInvites,
+      organization: organizations,
+      server: managedServers,
+      role: communityRoles
+    })
+    .from(dashboardInvites)
+    .innerJoin(organizations, eq(organizations.id, dashboardInvites.organizationId))
+    .innerJoin(managedServers, eq(managedServers.id, dashboardInvites.managedServerId))
+    .leftJoin(communityRoles, eq(communityRoles.id, dashboardInvites.roleId))
+    .where(eq(dashboardInvites.token, token))
+    .limit(1);
+
+  if (!row || row.invite.revokedAt) {
+    throw new ApiError('not_found', 'Invite link was not found.');
+  }
+
+  if (row.invite.expiresAt && row.invite.expiresAt <= new Date()) {
+    throw new ApiError('claim_expired', 'This invite link has expired.');
+  }
+
+  if (row.invite.maxUses !== null && row.invite.useCount >= row.invite.maxUses) {
+    throw new ApiError('claim_consumed', 'This invite link has already been used.');
+  }
+
+  return {
+    token,
+    organizationId: row.organization.id,
+    organizationName: row.organization.name,
+    communityId: row.server.id,
+    communityName: row.server.name,
+    role: row.role ? toCommunityRole(row.role) : null,
+    expiresAt: row.invite.expiresAt ? toIsoDateTime(row.invite.expiresAt) : null
+  };
+}
+
+export async function acceptDashboardInvite(userId: string, token: string) {
+  const preview = await getDashboardInvitePreview(token);
+  const { user: contextUser, discord } = await getUserContext(userId);
+
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(organizationMembers)
+      .values({
+        userId,
+        organizationId: preview.organizationId,
+        role: 'Member',
+        permissions: ROLE_PERMISSIONS.Member
+      })
+      .onConflictDoNothing();
+
+    const [existingMember] = await tx
+      .select()
+      .from(communityMembers)
+      .where(
+        and(
+          eq(communityMembers.managedServerId, preview.communityId),
+          eq(communityMembers.discordId, contextUser.discordId)
+        )
+      )
+      .limit(1);
+
+    const member =
+      existingMember ??
+      (
+        await tx
+          .insert(communityMembers)
+          .values({
+            organizationId: preview.organizationId,
+            managedServerId: preview.communityId,
+            userId,
+            discordId: contextUser.discordId,
+            discordUsername: discord.username,
+            discordAvatarUrl: discord.avatarUrl,
+            displayName: discord.globalName ?? discord.username
+          })
+          .returning()
+      )[0];
+
+    if (preview.role?.id) {
+      await tx
+        .insert(communityMemberRoles)
+        .values({ memberId: member.id, roleId: preview.role.id })
+        .onConflictDoNothing();
+    }
+
+    await tx
+      .update(dashboardInvites)
+      .set({ useCount: sql`${dashboardInvites.useCount} + 1` })
+      .where(eq(dashboardInvites.token, token));
+  });
+
+  return {
+    accepted: true as const,
+    organizationId: preview.organizationId,
+    communityId: preview.communityId
   };
 }
 

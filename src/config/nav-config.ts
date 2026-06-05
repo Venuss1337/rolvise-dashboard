@@ -43,7 +43,8 @@ export const navGroups: NavGroup[] = [
         icon: 'dashboard',
         isActive: false,
         shortcut: ['d', 'd'],
-        items: []
+        items: [],
+        access: { permission: 'community:view' }
       },
       {
         title: 'My Inbox',
@@ -51,7 +52,8 @@ export const navGroups: NavGroup[] = [
         icon: 'notification',
         isActive: false,
         shortcut: ['i', 'b'],
-        items: []
+        items: [],
+        access: { permission: 'community:view' }
       },
       {
         title: 'Analytics',
@@ -59,7 +61,8 @@ export const navGroups: NavGroup[] = [
         icon: 'trendingUp',
         isActive: false,
         shortcut: ['a', 'n'],
-        items: []
+        items: [],
+        access: { permission: 'community:manage' }
       },
       {
         title: 'Open MDT',
@@ -67,7 +70,8 @@ export const navGroups: NavGroup[] = [
         icon: 'code',
         isActive: false,
         shortcut: ['m', 'd'],
-        items: []
+        items: [],
+        access: { permission: 'mdt:open' }
       },
       {
         title: 'Servers',
@@ -84,7 +88,8 @@ export const navGroups: NavGroup[] = [
         icon: 'teams',
         isActive: false,
         shortcut: ['m', 'm'],
-        items: []
+        items: [],
+        access: { permission: 'staff:view' }
       },
       {
         title: 'Roles',
@@ -92,7 +97,8 @@ export const navGroups: NavGroup[] = [
         icon: 'badgeCheck',
         isActive: false,
         shortcut: ['r', 'r'],
-        items: []
+        items: [],
+        access: { permission: 'settings:manage' }
       },
       {
         title: 'Resources',
@@ -100,7 +106,8 @@ export const navGroups: NavGroup[] = [
         icon: 'forms',
         isActive: false,
         shortcut: ['r', 'e'],
-        items: []
+        items: [],
+        access: { permission: 'community:view' }
       },
       {
         title: 'Sessions',
@@ -108,7 +115,8 @@ export const navGroups: NavGroup[] = [
         icon: 'trendingUp',
         isActive: false,
         shortcut: ['s', 'e'],
-        items: []
+        items: [],
+        access: { permission: 'community:view' }
       },
       {
         title: 'Leave Of Absence',
@@ -116,7 +124,8 @@ export const navGroups: NavGroup[] = [
         icon: 'calendar',
         isActive: false,
         shortcut: ['l', 'a'],
-        items: []
+        items: [],
+        access: { permission: 'community:view' }
       },
       {
         title: 'Infractions',
@@ -124,7 +133,8 @@ export const navGroups: NavGroup[] = [
         icon: 'warning',
         isActive: false,
         shortcut: ['i', 'n'],
-        items: []
+        items: [],
+        access: { permission: 'cases:view' }
       },
       {
         title: 'Audit Logs',
@@ -132,7 +142,8 @@ export const navGroups: NavGroup[] = [
         icon: 'adjustments',
         isActive: false,
         shortcut: ['a', 'l'],
-        items: []
+        items: [],
+        access: { permission: 'settings:manage' }
       },
       {
         title: 'Integrations',
@@ -140,7 +151,8 @@ export const navGroups: NavGroup[] = [
         icon: 'galleryVerticalEnd',
         isActive: false,
         shortcut: ['s', 't'],
-        items: []
+        items: [],
+        access: { permission: 'settings:manage' }
       }
     ]
   }

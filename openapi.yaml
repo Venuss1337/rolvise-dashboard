@@ -23,6 +23,12 @@ tags:
     description: Bot-initiated Discord guild to organization linking.
   - name: Bot
     description: Signed Discord bot callbacks and status endpoints.
+  - name: Members
+    description: Server-scoped dashboard members and role assignments.
+  - name: Roles
+    description: Server-scoped roles and permissions.
+  - name: Invites
+    description: Dashboard join links for adding restricted members.
 
 security:
   - sessionCookie: []
@@ -278,6 +284,255 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /api/organizations/{organizationId}/members:
+    get:
+      tags:
+        - Members
+      operationId: listCommunityMembers
+      summary: List members for a managed server
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+        - $ref: '#/components/parameters/ServerIdQuery'
+        - name: search
+          in: query
+          schema:
+            type: string
+            maxLength: 100
+        - name: role
+          in: query
+          schema:
+            type: string
+          description: Role ID, `all`, or `none`.
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum:
+              - displayName
+              - discordUsername
+              - joinedAt
+            default: displayName
+        - name: sortDirection
+          in: query
+          schema:
+            type: string
+            enum:
+              - asc
+              - desc
+            default: asc
+      responses:
+        '200':
+          description: Server members.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommunityMemberListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/organizations/{organizationId}/roles:
+    get:
+      tags:
+        - Roles
+      operationId: listCommunityRoles
+      summary: List roles for a managed server
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+        - $ref: '#/components/parameters/ServerIdQuery'
+      responses:
+        '200':
+          description: Server roles.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommunityRoleListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    post:
+      tags:
+        - Roles
+      operationId: createCommunityRole
+      summary: Create a server role
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommunityRoleInput'
+      responses:
+        '201':
+          description: Role created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommunityRole'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/organizations/{organizationId}/roles/{roleId}:
+    patch:
+      tags:
+        - Roles
+      operationId: updateCommunityRole
+      summary: Update a server role
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+        - $ref: '#/components/parameters/RoleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommunityRolePatch'
+      responses:
+        '200':
+          description: Role updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CommunityRole'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      tags:
+        - Roles
+      operationId: deleteCommunityRole
+      summary: Delete a custom server role
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+        - $ref: '#/components/parameters/RoleId'
+      responses:
+        '200':
+          description: Role deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - deleted
+                properties:
+                  deleted:
+                    type: boolean
+                    enum:
+                      - true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/organizations/{organizationId}/invites:
+    post:
+      tags:
+        - Invites
+      operationId: createDashboardInvite
+      summary: Generate a dashboard join link for the selected server
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateDashboardInviteRequest'
+      responses:
+        '201':
+          description: Dashboard invite created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardInvite'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/invites/{token}:
+    get:
+      tags:
+        - Invites
+      operationId: getDashboardInvite
+      summary: Preview a dashboard invite
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/InviteToken'
+      responses:
+        '200':
+          description: Invite preview.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DashboardInvitePreview'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/invites/{token}/accept:
+    post:
+      tags:
+        - Invites
+      operationId: acceptDashboardInvite
+      summary: Accept a dashboard invite as the signed-in Discord user
+      parameters:
+        - $ref: '#/components/parameters/InviteToken'
+      responses:
+        '201':
+          description: Invite accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptDashboardInviteResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /api/organizations/claim/start:
     post:
       tags:
@@ -503,6 +758,31 @@ components:
       schema:
         $ref: '#/components/schemas/DiscordSnowflake'
       description: Discord guild snowflake ID.
+    ServerIdQuery:
+      name: serverId
+      in: query
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Managed ER:LC server ID.
+    RoleId:
+      name: roleId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Community role ID.
+    InviteToken:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 256
+      description: Dashboard invite token.
 
   responses:
     BadRequest:
@@ -794,10 +1074,12 @@ components:
         - Owner
         - Admin
         - Moderator
+        - Member
 
     OrganizationPermission:
       type: string
       enum:
+        - mdt:open
         - community:view
         - community:manage
         - staff:view
@@ -1023,6 +1305,275 @@ components:
             $ref: '#/components/schemas/ManagedServer'
         pageInfo:
           $ref: '#/components/schemas/CursorPageInfo'
+
+    CommunityRole:
+      type: object
+      required:
+        - id
+        - communityId
+        - organizationId
+        - name
+        - color
+        - permissions
+        - memberCount
+        - position
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        communityId:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        color:
+          type: string
+          pattern: '^#[0-9a-fA-F]{6}$'
+        permissions:
+          type: array
+          items:
+            type: string
+        memberCount:
+          type: integer
+          minimum: 0
+        position:
+          type: integer
+        systemKey:
+          type: string
+          nullable: true
+        createdAt:
+          $ref: '#/components/schemas/IsoDateTime'
+        updatedAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    CommunityRoleListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommunityRole'
+
+    CommunityRoleInput:
+      type: object
+      additionalProperties: false
+      required:
+        - serverId
+        - name
+        - color
+        - permissions
+      properties:
+        serverId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 2
+          maxLength: 64
+        color:
+          type: string
+          pattern: '^#[0-9a-fA-F]{6}$'
+        permissions:
+          type: array
+          items:
+            type: string
+
+    CommunityRolePatch:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 64
+        color:
+          type: string
+          pattern: '^#[0-9a-fA-F]{6}$'
+        permissions:
+          type: array
+          items:
+            type: string
+
+    CommunityMember:
+      type: object
+      required:
+        - id
+        - communityId
+        - organizationId
+        - discordId
+        - discordUsername
+        - displayName
+        - roles
+        - joinedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        communityId:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          nullable: true
+        discordId:
+          $ref: '#/components/schemas/DiscordSnowflake'
+        discordUsername:
+          type: string
+        discordAvatarUrl:
+          type: string
+          format: uri
+          nullable: true
+        displayName:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+            format: uuid
+        joinedAt:
+          $ref: '#/components/schemas/IsoDateTime'
+        lastSeenAt:
+          allOf:
+            - $ref: '#/components/schemas/IsoDateTime'
+          nullable: true
+
+    CommunityMemberListResponse:
+      type: object
+      required:
+        - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/CommunityMember'
+
+    CreateDashboardInviteRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - serverId
+      properties:
+        serverId:
+          type: string
+          format: uuid
+        roleId:
+          type: string
+          format: uuid
+          nullable: true
+        maxUses:
+          type: integer
+          minimum: 1
+          maximum: 500
+          nullable: true
+        expiresInHours:
+          type: integer
+          minimum: 1
+          maximum: 720
+          nullable: true
+
+    DashboardInvite:
+      type: object
+      required:
+        - id
+        - organizationId
+        - communityId
+        - token
+        - inviteUrl
+        - useCount
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        communityId:
+          type: string
+          format: uuid
+        token:
+          type: string
+        inviteUrl:
+          type: string
+          format: uri
+        roleId:
+          type: string
+          format: uuid
+          nullable: true
+        maxUses:
+          type: integer
+          nullable: true
+        useCount:
+          type: integer
+          minimum: 0
+        expiresAt:
+          allOf:
+            - $ref: '#/components/schemas/IsoDateTime'
+          nullable: true
+        revokedAt:
+          allOf:
+            - $ref: '#/components/schemas/IsoDateTime'
+          nullable: true
+        createdAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    DashboardInvitePreview:
+      type: object
+      required:
+        - token
+        - organizationId
+        - organizationName
+        - communityId
+        - communityName
+      properties:
+        token:
+          type: string
+        organizationId:
+          type: string
+          format: uuid
+        organizationName:
+          type: string
+        communityId:
+          type: string
+          format: uuid
+        communityName:
+          type: string
+        role:
+          allOf:
+            - $ref: '#/components/schemas/CommunityRole'
+          nullable: true
+        expiresAt:
+          allOf:
+            - $ref: '#/components/schemas/IsoDateTime'
+          nullable: true
+
+    AcceptDashboardInviteResponse:
+      type: object
+      required:
+        - accepted
+        - organizationId
+        - communityId
+      properties:
+        accepted:
+          type: boolean
+          enum:
+            - true
+        organizationId:
+          type: string
+          format: uuid
+        communityId:
+          type: string
+          format: uuid
 
     CursorPageInfo:
       type: object

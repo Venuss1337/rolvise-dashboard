@@ -19,7 +19,7 @@ export function MemberProfile({ memberId }: { memberId: string }) {
       <CardHeader>
         <div className='flex items-center gap-3'>
           <Avatar className='size-12'>
-            <AvatarImage src={member.discordAvatarUrl} alt={member.discordUsername} />
+            <AvatarImage src={member.discordAvatarUrl ?? undefined} alt={member.discordUsername} />
             <AvatarFallback>{member.displayName.slice(0, 2).toUpperCase()}</AvatarFallback>
           </Avatar>
           <div>

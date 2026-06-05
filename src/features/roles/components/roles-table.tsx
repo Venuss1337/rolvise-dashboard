@@ -109,8 +109,10 @@ function RoleRow({ role }: { role: CommunityRole }) {
 }
 
 export function RolesTable() {
-  const { communityId } = useCommunity();
-  const { data: roles } = useSuspenseQuery(rolesQueryOptions(communityId ?? ''));
+  const { communityId, organizationId } = useCommunity();
+  const { data: roles } = useSuspenseQuery(
+    rolesQueryOptions(organizationId ?? '', communityId ?? '')
+  );
   const [orderedRoles, setOrderedRoles] = useState(roles);
   const [isMounted, setIsMounted] = useState(false);
 

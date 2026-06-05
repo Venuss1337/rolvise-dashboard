@@ -42,19 +42,20 @@ export function NewInfractionButton() {
   const [severity, setSeverity] = useState('moderate');
   const [description, setDescription] = useState('');
   const [attachments, setAttachments] = useState<string[]>([]);
-  const { communityId, user } = useCommunity();
+  const { communityId, organizationId, user } = useCommunity();
   const filters = useMemo(
     () => ({
       communityId: communityId ?? '',
+      organizationId: organizationId ?? '',
       ...(search && { search }),
       sortBy: 'displayName' as const,
       sortDirection: 'asc' as const
     }),
-    [communityId, search]
+    [communityId, organizationId, search]
   );
   const { data: members = [] } = useQuery({
     ...membersQueryOptions(filters),
-    enabled: !!communityId
+    enabled: !!communityId && !!organizationId
   });
 
   function resetForm() {
@@ -138,7 +139,7 @@ export function NewInfractionButton() {
                     )}
                   >
                     <Avatar className='size-9'>
-                      <AvatarImage src={member.discordAvatarUrl} alt='' />
+                      <AvatarImage src={member.discordAvatarUrl ?? undefined} alt='' />
                       <AvatarFallback>
                         {member.displayName.slice(0, 2).toUpperCase()}
                       </AvatarFallback>

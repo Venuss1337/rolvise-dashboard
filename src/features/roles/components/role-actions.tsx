@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger
 } from '@/components/ui/dropdown-menu';
 import { Icons } from '@/components/icons';
+import { deleteCommunityRole } from '../api/service';
 import { roleKeys } from '../api/queries';
 import type { CommunityRole } from '../api/types';
 import { RoleFormDialog } from './role-form-dialog';
@@ -21,13 +22,21 @@ import { RoleFormDialog } from './role-form-dialog';
 export function RoleActions({ role }: { role: CommunityRole }) {
   const queryClient = useQueryClient();
   const [editOpen, setEditOpen] = useState(false);
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteCommunityRole(role.organizationId, role.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: roleKeys.list(role.organizationId, role.communityId)
+      });
+      toast.success('Role deleted');
+    },
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : 'Role could not be deleted.');
+    }
+  });
 
   function deleteRole() {
-    queryClient.setQueryData<CommunityRole[]>(
-      roleKeys.list(role.communityId),
-      (currentRoles = []) => currentRoles.filter((currentRole) => currentRole.id !== role.id)
-    );
-    toast.success('Role deleted');
+    deleteMutation.mutate();
   }
 
   return (
@@ -59,6 +68,7 @@ export function RoleActions({ role }: { role: CommunityRole }) {
           <DropdownMenuSeparator />
           <DropdownMenuItem
             className='text-destructive focus:text-destructive'
+            disabled={!!role.systemKey || deleteMutation.isPending}
             onClick={deleteRole}
           >
             <Icons.trash className='mr-2 size-4' />

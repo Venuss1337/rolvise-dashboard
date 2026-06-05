@@ -12,7 +12,12 @@ import {
   uuid
 } from 'drizzle-orm/pg-core';
 
-export const organizationRoleEnum = pgEnum('organization_role', ['Owner', 'Admin', 'Moderator']);
+export const organizationRoleEnum = pgEnum('organization_role', [
+  'Owner',
+  'Admin',
+  'Moderator',
+  'Member'
+]);
 
 export const discordGuildStatusEnum = pgEnum('discord_guild_status', [
   'linked',
@@ -206,6 +211,113 @@ export const managedServers = pgTable(
   (table) => [index('managed_servers_organization_id_idx').on(table.organizationId)]
 );
 
+export const communityRoles = pgTable(
+  'community_roles',
+  {
+    id: uuid('id')
+      .default(sql`gen_random_uuid()`)
+      .primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    managedServerId: uuid('managed_server_id')
+      .notNull()
+      .references(() => managedServers.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    color: text('color').default('#3b82f6').notNull(),
+    permissions: text('permissions')
+      .array()
+      .notNull()
+      .default(sql`ARRAY[]::text[]`),
+    position: integer('position').default(0).notNull(),
+    systemKey: text('system_key'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at')
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull()
+  },
+  (table) => [
+    index('community_roles_organization_id_idx').on(table.organizationId),
+    index('community_roles_managed_server_id_idx').on(table.managedServerId),
+    uniqueIndex('community_roles_server_name_idx').on(table.managedServerId, table.name)
+  ]
+);
+
+export const communityMembers = pgTable(
+  'community_members',
+  {
+    id: uuid('id')
+      .default(sql`gen_random_uuid()`)
+      .primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    managedServerId: uuid('managed_server_id')
+      .notNull()
+      .references(() => managedServers.id, { onDelete: 'cascade' }),
+    userId: text('user_id').references(() => user.id, { onDelete: 'set null' }),
+    discordId: text('discord_id').notNull(),
+    displayName: text('display_name').notNull(),
+    discordUsername: text('discord_username').notNull(),
+    discordAvatarUrl: text('discord_avatar_url'),
+    joinedAt: timestamp('joined_at').defaultNow().notNull(),
+    lastSeenAt: timestamp('last_seen_at')
+  },
+  (table) => [
+    index('community_members_organization_id_idx').on(table.organizationId),
+    index('community_members_managed_server_id_idx').on(table.managedServerId),
+    uniqueIndex('community_members_server_discord_idx').on(table.managedServerId, table.discordId)
+  ]
+);
+
+export const communityMemberRoles = pgTable(
+  'community_member_roles',
+  {
+    memberId: uuid('member_id')
+      .notNull()
+      .references(() => communityMembers.id, { onDelete: 'cascade' }),
+    roleId: uuid('role_id')
+      .notNull()
+      .references(() => communityRoles.id, { onDelete: 'cascade' })
+  },
+  (table) => [
+    index('community_member_roles_member_id_idx').on(table.memberId),
+    index('community_member_roles_role_id_idx').on(table.roleId),
+    uniqueIndex('community_member_roles_member_role_idx').on(table.memberId, table.roleId)
+  ]
+);
+
+export const dashboardInvites = pgTable(
+  'dashboard_invites',
+  {
+    id: uuid('id')
+      .default(sql`gen_random_uuid()`)
+      .primaryKey(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    managedServerId: uuid('managed_server_id')
+      .notNull()
+      .references(() => managedServers.id, { onDelete: 'cascade' }),
+    token: text('token').notNull().unique(),
+    roleId: uuid('role_id').references(() => communityRoles.id, { onDelete: 'set null' }),
+    createdByUserId: text('created_by_user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    maxUses: integer('max_uses'),
+    useCount: integer('use_count').default(0).notNull(),
+    expiresAt: timestamp('expires_at'),
+    revokedAt: timestamp('revoked_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull()
+  },
+  (table) => [
+    index('dashboard_invites_organization_id_idx').on(table.organizationId),
+    index('dashboard_invites_managed_server_id_idx').on(table.managedServerId),
+    uniqueIndex('dashboard_invites_token_idx').on(table.token)
+  ]
+);
+
 export const organizationClaims = pgTable(
   'organization_claims',
   {
@@ -322,6 +434,10 @@ export const schema = {
   organizationMembers,
   discordGuildLinks,
   managedServers,
+  communityRoles,
+  communityMembers,
+  communityMemberRoles,
+  dashboardInvites,
   organizationClaims,
   botEvents,
   auditLogs

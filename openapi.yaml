@@ -1,0 +1,1351 @@
+openapi: 3.0.3
+info:
+  title: Rolvise Backend API
+  version: 0.1.0
+  description: >
+    Discord-only auth, organizations, Discord bot linking, and dashboard server context.
+    This contract covers the first backend slice of Rolvise: Discord login, current
+    account context, organization access, managed ER:LC server listing, and Discord
+    bot-driven organization claiming.
+servers:
+  - url: http://localhost:3000
+    description: Local development
+  - url: https://app.rolvise.com
+    description: Production
+tags:
+  - name: Auth
+    description: Discord-only account session endpoints.
+  - name: Account
+    description: Current user and dashboard context.
+  - name: Organizations
+    description: Rolvise organizations and managed ER:LC server context.
+  - name: Discord Claim
+    description: Bot-initiated Discord guild to organization linking.
+  - name: Bot
+    description: Signed Discord bot callbacks and status endpoints.
+
+security:
+  - sessionCookie: []
+
+paths:
+  /api/auth/session:
+    get:
+      tags:
+        - Auth
+      operationId: getAuthSession
+      summary: Get the current Discord-authenticated session
+      description: >
+        Returns the current authenticated user and Discord account profile. This endpoint
+        is safe for the dashboard to call on load. If there is no valid Better Auth session,
+        the response is `401`.
+      responses:
+        '200':
+          description: Current session exists.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSessionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/discord/start:
+    post:
+      tags:
+        - Auth
+      operationId: startDiscordLogin
+      summary: Start Discord OAuth login
+      description: >
+        Creates a Discord OAuth authorization URL. The frontend may redirect the user to
+        `authorizationUrl`. The implementation may delegate this to Better Auth.
+      security: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartDiscordLoginRequest'
+      responses:
+        '200':
+          description: Discord authorization URL created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StartDiscordLoginResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/discord/callback:
+    get:
+      tags:
+        - Auth
+      operationId: completeDiscordLogin
+      summary: Complete Discord OAuth callback
+      description: >
+        Handles the Discord OAuth callback, creates or updates the Better Auth account
+        and session, then redirects the browser to the requested post-login route.
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: true
+          schema:
+            type: string
+          description: OAuth authorization code returned by Discord.
+        - name: state
+          in: query
+          required: true
+          schema:
+            type: string
+          description: OAuth state value issued by the auth flow.
+      responses:
+        '302':
+          description: Login completed and browser is redirected.
+          headers:
+            Location:
+              description: Redirect target, usually `/dashboard/servers` or onboarding.
+              schema:
+                type: string
+            Set-Cookie:
+              description: Better Auth session cookie.
+              schema:
+                type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/auth/sign-out:
+    post:
+      tags:
+        - Auth
+      operationId: signOut
+      summary: End the current session
+      description: Invalidates the current session and clears the auth cookie.
+      responses:
+        '204':
+          description: Signed out successfully.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/me:
+    get:
+      tags:
+        - Account
+      operationId: getCurrentAccountContext
+      summary: Get current account and dashboard context
+      description: >
+        Returns the authenticated user, their Discord profile, organizations, memberships,
+        and the active organization/server defaults used by the dashboard shell.
+      responses:
+        '200':
+          description: Current account context.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/organizations:
+    get:
+      tags:
+        - Organizations
+      operationId: listOrganizations
+      summary: List organizations available to the current user
+      description: Returns Rolvise organizations where the current user has membership.
+      responses:
+        '200':
+          description: User organizations.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OrganizationSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/organizations/{organizationId}:
+    get:
+      tags:
+        - Organizations
+      operationId: getOrganization
+      summary: Get organization details
+      description: Returns organization, membership, Discord guild link, and server counts.
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+      responses:
+        '200':
+          description: Organization details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/organizations/{organizationId}/servers:
+    get:
+      tags:
+        - Organizations
+      operationId: listManagedServers
+      summary: List managed ER:LC servers for dashboard server selection
+      description: >
+        Returns the ER:LC server cards shown in `/dashboard/servers` for the selected
+        organization. This replaces the current mock server list when backend wiring starts.
+      parameters:
+        - $ref: '#/components/parameters/OrganizationId'
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/ManagedServerStatus'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Managed ER:LC servers.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedServerListResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/organizations/claim/start:
+    post:
+      tags:
+        - Discord Claim
+      operationId: startOrganizationClaim
+      summary: Start a Discord guild organization claim from the bot
+      description: >
+        Called by the Discord bot after `/rolvise setup`. The backend verifies the bot
+        signature, confirms the command runner is the guild owner based on the provided
+        Discord IDs, creates a short-lived single-use claim, and returns a claim URL.
+      security:
+        - botApiToken: []
+          botSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartOrganizationClaimRequest'
+      responses:
+        '201':
+          description: Claim created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationClaim'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/BotUnauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/organizations/claim/{claimToken}:
+    get:
+      tags:
+        - Discord Claim
+      operationId: getOrganizationClaim
+      summary: Read claim status for onboarding UI
+      description: >
+        Returns non-secret metadata for a pending claim so the logged-in user can confirm
+        they are connecting the correct Discord guild.
+      parameters:
+        - $ref: '#/components/parameters/ClaimToken'
+      responses:
+        '200':
+          description: Claim status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationClaimStatus'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/organizations/claim/complete:
+    post:
+      tags:
+        - Discord Claim
+      operationId: completeOrganizationClaim
+      summary: Complete organization creation and Discord guild link
+      description: >
+        Called by the web app after Discord login. The backend verifies the claim token,
+        signed-in Discord user, guild owner ID, and one-guild-to-one-organization constraint,
+        then creates the organization, owner membership, Discord guild link, and audit logs.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteOrganizationClaimRequest'
+      responses:
+        '201':
+          description: Organization created and linked.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompleteOrganizationClaimResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/bot/guilds/{discordGuildId}/status:
+    get:
+      tags:
+        - Bot
+      operationId: getBotGuildStatus
+      summary: Get linked status for a Discord guild
+      description: Used by `/rolvise status` to report whether a guild is connected.
+      security:
+        - botApiToken: []
+      parameters:
+        - $ref: '#/components/parameters/DiscordGuildId'
+      responses:
+        '200':
+          description: Discord guild link status.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BotGuildStatusResponse'
+        '401':
+          $ref: '#/components/responses/BotUnauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/bot/events:
+    post:
+      tags:
+        - Bot
+      operationId: ingestBotEvent
+      summary: Ingest signed Discord bot event
+      description: >
+        Receives signed bot events for guild sync, member sync, role sync, install health,
+        and audit logging. Events for unlinked guilds are rejected unless they are part of
+        setup or claim handshakes.
+      security:
+        - botApiToken: []
+          botSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BotEventRequest'
+      responses:
+        '202':
+          description: Event accepted for processing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BotEventAcceptedResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/BotUnauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: better-auth.session_token
+      description: Better Auth HTTP-only session cookie.
+    botApiToken:
+      type: http
+      scheme: bearer
+      bearerFormat: bot-token
+      description: Static or rotated token used only by the Discord bot worker.
+    botSignature:
+      type: apiKey
+      in: header
+      name: X-Rolvise-Signature
+      description: HMAC signature of the request body using the bot callback secret.
+
+  parameters:
+    OrganizationId:
+      name: organizationId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Rolvise organization ID.
+    ClaimToken:
+      name: claimToken
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 32
+        maxLength: 256
+      description: Short-lived single-use organization claim token.
+    DiscordGuildId:
+      name: discordGuildId
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/DiscordSnowflake'
+      description: Discord guild snowflake ID.
+
+  responses:
+    BadRequest:
+      description: Request is malformed or contains unsupported parameters.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            malformed:
+              value:
+                error:
+                  code: bad_request
+                  message: Request body is malformed.
+    Unauthorized:
+      description: User session is missing, expired, or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            missingSession:
+              value:
+                error:
+                  code: unauthorized
+                  message: Sign in with Discord to continue.
+    BotUnauthorized:
+      description: Bot token or signature is missing, expired, or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            invalidBotSignature:
+              value:
+                error:
+                  code: bot_unauthorized
+                  message: Bot request could not be verified.
+    Forbidden:
+      description: Authenticated caller does not have permission for this resource.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            forbidden:
+              value:
+                error:
+                  code: forbidden
+                  message: You do not have permission to access this resource.
+    NotFound:
+      description: Requested resource was not found.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            notFound:
+              value:
+                error:
+                  code: not_found
+                  message: Resource not found.
+    Conflict:
+      description: Request conflicts with an existing resource or invariant.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            guildAlreadyLinked:
+              value:
+                error:
+                  code: discord_guild_already_linked
+                  message: This Discord guild is already linked to a Rolvise organization.
+    Gone:
+      description: Resource used to exist but is expired, revoked, or already consumed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            expiredClaim:
+              value:
+                error:
+                  code: claim_expired
+                  message: This organization claim link has expired.
+    ValidationError:
+      description: Request shape is valid JSON but fails field validation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            validation:
+              value:
+                error:
+                  code: validation_error
+                  message: One or more fields are invalid.
+                  issues:
+                    - path: organizationName
+                      message: Organization name is required.
+    RateLimited:
+      description: Too many requests.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            rateLimited:
+              value:
+                error:
+                  code: rate_limited
+                  message: Too many requests. Try again later.
+    InternalServerError:
+      description: Unexpected server error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            internal:
+              value:
+                error:
+                  code: internal_server_error
+                  message: Something went wrong.
+
+  schemas:
+    ErrorResponse:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+              examples:
+                - unauthorized
+                - forbidden
+                - validation_error
+            message:
+              type: string
+              description: Human-readable error message safe to show in the app.
+            requestId:
+              type: string
+              nullable: true
+              description: Request ID for logs/support.
+            issues:
+              type: array
+              items:
+                $ref: '#/components/schemas/ValidationIssue'
+              description: Field-level validation issues.
+
+    ValidationIssue:
+      type: object
+      required:
+        - path
+        - message
+      properties:
+        path:
+          type: string
+          description: Dot-separated path to the invalid field.
+        message:
+          type: string
+        code:
+          type: string
+          nullable: true
+
+    DiscordSnowflake:
+      type: string
+      pattern: '^[0-9]{17,20}$'
+      examples:
+        - '123456789012345678'
+
+    IsoDateTime:
+      type: string
+      format: date-time
+      examples:
+        - '2026-06-05T12:00:00.000Z'
+
+    UserId:
+      type: string
+      format: uuid
+
+    User:
+      type: object
+      required:
+        - id
+        - discordId
+        - name
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          $ref: '#/components/schemas/UserId'
+        discordId:
+          $ref: '#/components/schemas/DiscordSnowflake'
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+          nullable: true
+        image:
+          type: string
+          format: uri
+          nullable: true
+        createdAt:
+          $ref: '#/components/schemas/IsoDateTime'
+        updatedAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    DiscordProfile:
+      type: object
+      required:
+        - id
+        - username
+      properties:
+        id:
+          $ref: '#/components/schemas/DiscordSnowflake'
+        username:
+          type: string
+        globalName:
+          type: string
+          nullable: true
+        discriminator:
+          type: string
+          nullable: true
+        avatarUrl:
+          type: string
+          format: uri
+          nullable: true
+
+    AuthSessionResponse:
+      type: object
+      required:
+        - authenticated
+        - user
+        - discord
+        - expiresAt
+      properties:
+        authenticated:
+          type: boolean
+          enum:
+            - true
+        user:
+          $ref: '#/components/schemas/User'
+        discord:
+          $ref: '#/components/schemas/DiscordProfile'
+        expiresAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    StartDiscordLoginRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        redirectTo:
+          type: string
+          default: /dashboard/servers
+          description: Relative URL to return to after login.
+          examples:
+            - /dashboard/servers
+            - /dashboard/onboarding/discord?claim=abc
+
+    StartDiscordLoginResponse:
+      type: object
+      required:
+        - authorizationUrl
+      properties:
+        authorizationUrl:
+          type: string
+          format: uri
+        expiresAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    OrganizationRole:
+      type: string
+      enum:
+        - Owner
+        - Admin
+        - Moderator
+
+    OrganizationPermission:
+      type: string
+      enum:
+        - community:view
+        - community:manage
+        - staff:view
+        - staff:manage
+        - cases:view
+        - cases:manage
+        - settings:manage
+
+    OrganizationSummary:
+      type: object
+      required:
+        - id
+        - name
+        - role
+        - permissions
+        - discordGuild
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        slug:
+          type: string
+          nullable: true
+        role:
+          $ref: '#/components/schemas/OrganizationRole'
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrganizationPermission'
+        discordGuild:
+          $ref: '#/components/schemas/DiscordGuildLink'
+        managedServerCount:
+          type: integer
+          minimum: 0
+        createdAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    OrganizationDetail:
+      allOf:
+        - $ref: '#/components/schemas/OrganizationSummary'
+        - type: object
+          required:
+            - membership
+            - updatedAt
+          properties:
+            membership:
+              $ref: '#/components/schemas/OrganizationMembership'
+            updatedAt:
+              $ref: '#/components/schemas/IsoDateTime'
+
+    OrganizationMembership:
+      type: object
+      required:
+        - id
+        - userId
+        - organizationId
+        - role
+        - permissions
+        - joinedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          $ref: '#/components/schemas/UserId'
+        organizationId:
+          type: string
+          format: uuid
+        role:
+          $ref: '#/components/schemas/OrganizationRole'
+        permissions:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrganizationPermission'
+        joinedAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    DiscordGuildLink:
+      type: object
+      required:
+        - discordGuildId
+        - name
+        - ownerDiscordId
+        - status
+        - linkedAt
+      properties:
+        discordGuildId:
+          $ref: '#/components/schemas/DiscordSnowflake'
+        name:
+          type: string
+        iconUrl:
+          type: string
+          format: uri
+          nullable: true
+        ownerDiscordId:
+          $ref: '#/components/schemas/DiscordSnowflake'
+        status:
+          type: string
+          enum:
+            - linked
+            - bot_missing
+            - sync_required
+            - disabled
+        memberCount:
+          type: integer
+          minimum: 0
+          nullable: true
+        linkedAt:
+          $ref: '#/components/schemas/IsoDateTime'
+        lastSyncedAt:
+          allOf:
+            - $ref: '#/components/schemas/IsoDateTime'
+          nullable: true
+
+    MeResponse:
+      type: object
+      required:
+        - user
+        - discord
+        - organizations
+        - activeOrganizationId
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        discord:
+          $ref: '#/components/schemas/DiscordProfile'
+        organizations:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrganizationSummary'
+        activeOrganizationId:
+          type: string
+          format: uuid
+          nullable: true
+        activeManagedServerId:
+          type: string
+          format: uuid
+          nullable: true
+        onboarding:
+          type: object
+          required:
+            - requiresOrganization
+          properties:
+            requiresOrganization:
+              type: boolean
+            nextUrl:
+              type: string
+              nullable: true
+
+    ManagedServerStatus:
+      type: string
+      enum:
+        - online
+        - maintenance
+        - offline
+
+    ManagedServer:
+      type: object
+      required:
+        - id
+        - organizationId
+        - name
+        - status
+        - joinCode
+        - memberCount
+        - staffCount
+        - activePlayers
+        - openIncidents
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        organizationId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        imageSeed:
+          type: string
+          nullable: true
+        status:
+          $ref: '#/components/schemas/ManagedServerStatus'
+        robloxGroupId:
+          type: string
+          nullable: true
+        joinCode:
+          type: string
+        memberCount:
+          type: integer
+          minimum: 0
+        staffCount:
+          type: integer
+          minimum: 0
+        activePlayers:
+          type: integer
+          minimum: 0
+        openIncidents:
+          type: integer
+          minimum: 0
+        lastSessionAt:
+          allOf:
+            - $ref: '#/components/schemas/IsoDateTime'
+          nullable: true
+        createdAt:
+          $ref: '#/components/schemas/IsoDateTime'
+        updatedAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    ManagedServerListResponse:
+      type: object
+      required:
+        - items
+        - pageInfo
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ManagedServer'
+        pageInfo:
+          $ref: '#/components/schemas/CursorPageInfo'
+
+    CursorPageInfo:
+      type: object
+      required:
+        - hasNextPage
+        - nextCursor
+      properties:
+        hasNextPage:
+          type: boolean
+        nextCursor:
+          type: string
+          nullable: true
+
+    StartOrganizationClaimRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - discordGuildId
+        - discordGuildName
+        - guildOwnerDiscordId
+        - commandUserDiscordId
+        - botUserDiscordId
+        - botPermissions
+        - issuedAt
+      properties:
+        discordGuildId:
+          $ref: '#/components/schemas/DiscordSnowflake'
+        discordGuildName:
+          type: string
+          minLength: 1
+          maxLength: 100
+        guildOwnerDiscordId:
+          $ref: '#/components/schemas/DiscordSnowflake'
+        commandUserDiscordId:
+          $ref: '#/components/schemas/DiscordSnowflake'
+        botUserDiscordId:
+          $ref: '#/components/schemas/DiscordSnowflake'
+        memberCount:
+          type: integer
+          minimum: 0
+          nullable: true
+        iconUrl:
+          type: string
+          format: uri
+          nullable: true
+        botPermissions:
+          type: array
+          minItems: 1
+          items:
+            type: string
+          examples:
+            - - ViewChannel
+              - SendMessages
+              - ManageRoles
+        issuedAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    OrganizationClaim:
+      type: object
+      required:
+        - claimToken
+        - claimUrl
+        - discordGuildId
+        - discordGuildName
+        - guildOwnerDiscordId
+        - status
+        - expiresAt
+        - createdAt
+      properties:
+        claimToken:
+          type: string
+        claimUrl:
+          type: string
+          format: uri
+        discordGuildId:
+          $ref: '#/components/schemas/DiscordSnowflake'
+        discordGuildName:
+          type: string
+        guildOwnerDiscordId:
+          $ref: '#/components/schemas/DiscordSnowflake'
+        status:
+          $ref: '#/components/schemas/OrganizationClaimLifecycleStatus'
+        expiresAt:
+          $ref: '#/components/schemas/IsoDateTime'
+        createdAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    OrganizationClaimStatus:
+      type: object
+      required:
+        - discordGuildId
+        - discordGuildName
+        - guildOwnerDiscordId
+        - status
+        - expiresAt
+      properties:
+        discordGuildId:
+          $ref: '#/components/schemas/DiscordSnowflake'
+        discordGuildName:
+          type: string
+        guildOwnerDiscordId:
+          $ref: '#/components/schemas/DiscordSnowflake'
+        iconUrl:
+          type: string
+          format: uri
+          nullable: true
+        status:
+          $ref: '#/components/schemas/OrganizationClaimLifecycleStatus'
+        expiresAt:
+          $ref: '#/components/schemas/IsoDateTime'
+
+    OrganizationClaimLifecycleStatus:
+      type: string
+      enum:
+        - pending
+        - completed
+        - expired
+        - revoked
+
+    CompleteOrganizationClaimRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - claimToken
+        - organizationName
+      properties:
+        claimToken:
+          type: string
+          minLength: 32
+          maxLength: 256
+        organizationName:
+          type: string
+          minLength: 2
+          maxLength: 100
+        initialServerName:
+          type: string
+          minLength: 2
+          maxLength: 100
+          nullable: true
+        initialServerJoinCode:
+          type: string
+          minLength: 2
+          maxLength: 32
+          nullable: true
+
+    CompleteOrganizationClaimResponse:
+      type: object
+      required:
+        - organization
+        - membership
+        - discordGuild
+      properties:
+        organization:
+          $ref: '#/components/schemas/OrganizationSummary'
+        membership:
+          $ref: '#/components/schemas/OrganizationMembership'
+        discordGuild:
+          $ref: '#/components/schemas/DiscordGuildLink'
+        initialServer:
+          allOf:
+            - $ref: '#/components/schemas/ManagedServer'
+          nullable: true
+
+    BotGuildStatusResponse:
+      type: object
+      required:
+        - discordGuildId
+        - linked
+      properties:
+        discordGuildId:
+          $ref: '#/components/schemas/DiscordSnowflake'
+        linked:
+          type: boolean
+        organizationId:
+          type: string
+          format: uuid
+          nullable: true
+        organizationName:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum:
+            - unlinked
+            - linked
+            - sync_required
+            - disabled
+        lastSyncedAt:
+          allOf:
+            - $ref: '#/components/schemas/IsoDateTime'
+          nullable: true
+
+    BotEventType:
+      type: string
+      enum:
+        - guild_installed
+        - guild_removed
+        - guild_sync
+        - member_sync
+        - role_sync
+        - setup_started
+        - status_checked
+
+    BotEventRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - eventId
+        - type
+        - discordGuildId
+        - occurredAt
+      properties:
+        eventId:
+          type: string
+          format: uuid
+          description: Idempotency key for this bot event.
+        type:
+          $ref: '#/components/schemas/BotEventType'
+        discordGuildId:
+          $ref: '#/components/schemas/DiscordSnowflake'
+        occurredAt:
+          $ref: '#/components/schemas/IsoDateTime'
+        actorDiscordId:
+          allOf:
+            - $ref: '#/components/schemas/DiscordSnowflake'
+          nullable: true
+        payload:
+          oneOf:
+            - $ref: '#/components/schemas/BotGuildSyncPayload'
+            - $ref: '#/components/schemas/BotRoleSyncPayload'
+            - $ref: '#/components/schemas/BotMemberSyncPayload'
+            - type: object
+              additionalProperties: true
+
+    BotGuildSyncPayload:
+      type: object
+      required:
+        - guildName
+        - ownerDiscordId
+      properties:
+        guildName:
+          type: string
+        ownerDiscordId:
+          $ref: '#/components/schemas/DiscordSnowflake'
+        memberCount:
+          type: integer
+          minimum: 0
+          nullable: true
+        iconUrl:
+          type: string
+          format: uri
+          nullable: true
+        botPermissions:
+          type: array
+          items:
+            type: string
+
+    BotRoleSyncPayload:
+      type: object
+      required:
+        - roles
+      properties:
+        roles:
+          type: array
+          items:
+            type: object
+            required:
+              - id
+              - name
+              - position
+            properties:
+              id:
+                $ref: '#/components/schemas/DiscordSnowflake'
+              name:
+                type: string
+              position:
+                type: integer
+              managed:
+                type: boolean
+
+    BotMemberSyncPayload:
+      type: object
+      required:
+        - members
+      properties:
+        members:
+          type: array
+          items:
+            type: object
+            required:
+              - discordId
+              - username
+              - roleIds
+            properties:
+              discordId:
+                $ref: '#/components/schemas/DiscordSnowflake'
+              username:
+                type: string
+              globalName:
+                type: string
+                nullable: true
+              avatarUrl:
+                type: string
+                format: uri
+                nullable: true
+              roleIds:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DiscordSnowflake'
+
+    BotEventAcceptedResponse:
+      type: object
+      required:
+        - accepted
+        - eventId
+      properties:
+        accepted:
+          type: boolean
+          enum:
+            - true
+        eventId:
+          type: string
+          format: uuid
+        duplicate:
+          type: boolean
+          default: false

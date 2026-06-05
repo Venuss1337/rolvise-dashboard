@@ -13,6 +13,24 @@ function getRedirectTo(claim: string | null) {
   return '/dashboard/servers';
 }
 
+function getClaimFromNext(next: string | null) {
+  if (!next || !next.startsWith('/')) {
+    return null;
+  }
+
+  try {
+    const url = new URL(next, window.location.origin);
+
+    if (url.pathname !== '/dashboard/onboarding/discord') {
+      return null;
+    }
+
+    return url.searchParams.get('claim');
+  } catch {
+    return null;
+  }
+}
+
 export function DiscordAuthButton() {
   const [isLoading, setIsLoading] = useState(false);
 
@@ -22,13 +40,14 @@ export function DiscordAuthButton() {
     try {
       toast.info('Starting Discord sign-in...');
       const params = new URLSearchParams(window.location.search);
+      const claim = params.get('claim') ?? getClaimFromNext(params.get('next'));
       const response = await fetch('/api/auth/discord/start', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          redirectTo: getRedirectTo(params.get('claim'))
+          redirectTo: getRedirectTo(claim)
         })
       });
 
